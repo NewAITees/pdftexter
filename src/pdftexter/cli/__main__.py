@@ -56,6 +56,8 @@ def pdf_to_text_cli(args: argparse.Namespace) -> int:
         ["--temp-dir", args.temp_dir] if args.temp_dir else []
     ) + (
         ["--no-progress"] if args.no_progress else []
+    ) + (
+        ["--skip-verify"] if args.skip_verify else []
     )
     
     return pdf_to_text_main()
@@ -204,6 +206,9 @@ def main() -> int:
     )
     pdf_text_parser.add_argument(
         "--no-progress", action="store_true", help="進捗表示を無効化"
+    )
+    pdf_text_parser.add_argument(
+        "--skip-verify", action="store_true", help="OCRセットアップの検証をスキップ"
     )
     pdf_text_parser.set_defaults(func=pdf_to_text_cli)
     
