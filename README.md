@@ -93,9 +93,13 @@ poetry run pdftexter full ./images -o result.md
 
 ### DeepSeek-OCR環境のセットアップ
 
-DeepSeek-OCRを使用する場合は、以下の手順でセットアップしてください：
+DeepSeek-OCRを使用するには、**2つの方法**があります：
 
-#### 1. モデルのダウンロード
+#### 方法1: HuggingFace Transformers版（推奨・簡単）
+
+vLLMサーバー不要で、より簡単にセットアップできます。
+
+##### 1. モデルのダウンロード
 
 ```bash
 # モデルをダウンロード（約6.7GB）
@@ -107,7 +111,26 @@ poetry run python scripts/download_deepseek_model.py --model-path ./models/DeepS
 
 モデルは `./models/DeepSeek-OCR` にダウンロードされます（約6.7GB）。
 
-#### 2. DeepSeek-OCRリポジトリのセットアップ（vLLMサーバー起動用）
+##### 2. 依存関係のインストール
+
+```bash
+# transformersとtorchをインストール
+uv pip install transformers pillow torch
+```
+
+##### 3. 設定ファイルの準備
+
+`config/ocr_config.yaml` で `use_huggingface: true` を設定します（デフォルトでtrueになっています）。
+
+これで完了です！vLLMサーバーを起動する必要はありません。
+
+---
+
+#### 方法2: vLLM版（高性能・セットアップが複雑）
+
+より高性能ですが、vLLMサーバーのセットアップが必要です。
+
+##### 1. モデルのダウンロード
 
 ```bash
 # DeepSeek-OCRリポジトリのクローン
@@ -129,6 +152,44 @@ uv pip install vllm-0.8.5+cu118-cp38-abi3-manylinux1_x86_64.whl
 uv pip install -r requirements.txt
 uv pip install flash-attn==2.7.3 --no-build-isolation
 ```
+
+**注意**: モデルは上記の手順1で既にダウンロード済みです。DeepSeek-OCRリポジトリ内に再度ダウンロードする必要はありません。
+
+#### 3. 設定ファイルの準備
+
+`config/ocr_config.yaml` を作成し、ダウンロードしたモデルのパスを設定します：
+
+```yaml
+deepseek_ocr:
+  # ダウンロードしたモデルのパス（絶対パス推奨）
+  model_path: "/home/perso/analysis/pdftexter/models/DeepSeek-OCR"
+  
+  # vLLM APIで使用するモデル名
+  model_name: "deepseek-ocr"
+  
+  # vLLMサーバーのURL（ローカル実行時はnullでOK）
+  vllm_server_url: null
+```
+
+
+DeepSeek-OCRを使用するには、vLLMサーバーを起動する必要があります：
+
+```bash
+# DeepSeek-OCRディレクトリで実行
+cd DeepSeek-OCR
+source .venv/bin/activate  # 仮想環境をアクティベート
+
+# vLLMサーバーを起動（モデルパスは設定ファイルで指定したパスを使用）
+python -m vllm.entrypoints.openai.api_server \
+    --model /path/to/deepseek-ocr-model \
+    --port 8000 \
+    --trust-remote-code
+```
+
+**重要**: 
+- `--model` には、手順1でダウンロードしたモデルのパス（`./models/DeepSeek-OCR` の絶対パス）を指定してください
+- `--trust-remote-code` オプションが必要な場合があります
+- サーバーはバックグラウンドで実行するか、別のターミナルで起動してください
 
 詳細なセットアップ手順は [PLAN.md](docs/PLAN.md) を参照してください。
 
