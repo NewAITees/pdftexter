@@ -93,7 +93,21 @@ poetry run pdftexter full ./images -o result.md
 
 ### DeepSeek-OCR環境のセットアップ
 
-DeepSeek-OCRを使用する場合は、別途セットアップが必要です：
+DeepSeek-OCRを使用する場合は、以下の手順でセットアップしてください：
+
+#### 1. モデルのダウンロード
+
+```bash
+# モデルをダウンロード（約6.7GB）
+poetry run python scripts/download_deepseek_model.py --model-path ./models/DeepSeek-OCR
+
+# または、huggingface_hubが未インストールの場合は自動インストール
+poetry run python scripts/download_deepseek_model.py --model-path ./models/DeepSeek-OCR --install-hub
+```
+
+モデルは `./models/DeepSeek-OCR` にダウンロードされます（約6.7GB）。
+
+#### 2. DeepSeek-OCRリポジトリのセットアップ（vLLMサーバー起動用）
 
 ```bash
 # DeepSeek-OCRリポジトリのクローン
