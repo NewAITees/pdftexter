@@ -14,7 +14,15 @@ dependencies = [
     "pyyaml>=6.0.0",
     "requests>=2.31.0",
     "pdf2image>=1.16.0",
-    "huggingface-hub>=0.20.0",  # DeepSeek-OCRモデルダウンロード用
+    "huggingface-hub>=0.34.0,<1.0", # DeepSeek-OCRモデルダウンロード用
+    # DeepSeek-OCR公式推奨環境に合わせる
+    "torch==2.6.0",
+    "torchvision==0.21.0",
+    "transformers==4.46.3",
+    "tokenizers==0.20.3",
+    "einops",
+    "addict",
+    "easydict",
 ]
 
 [project.optional-dependencies]
@@ -52,3 +60,9 @@ pdftexter = "pdftexter.cli.__main__:main"
 kindle-screenshot = "pdftexter.kindle.screenshot:main"
 kindle-pdf-convert = "pdftexter.pdf.converter:main"
 pdf-to-text = "pdftexter.cli.pdf_to_text:main"
+
+# CUDA 11.8用のPyTorchインデックス（公式推奨環境）
+[[tool.uv.index]]
+name = "pytorch-cu118"
+url = "https://download.pytorch.org/whl/cu118"
+explicit = true
