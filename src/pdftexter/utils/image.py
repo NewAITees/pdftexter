@@ -32,6 +32,9 @@ def find_content_boundaries(
         (左端の位置, 右端の位置)のタプル
         この値は、trim_image()関数で使用して画像をトリミングします
     """
+    # 比較に使用する行インデックス（20行目を使用）
+    row_idx = 20
+    
     def compare_pixels(img: np.ndarray, rng: range, row_idx: int) -> Optional[int]:
         """
         ピクセルの色を比較して境界を検出
@@ -50,9 +53,9 @@ def find_content_boundaries(
                 return i
         return None
     
-    left = compare_pixels(img, range(left_margin, img.shape[1] - right_margin))
+    left = compare_pixels(img, range(left_margin, img.shape[1] - right_margin), row_idx)
     right = compare_pixels(
-        img, reversed(range(left_margin, img.shape[1] - right_margin))
+        img, reversed(range(left_margin, img.shape[1] - right_margin)), row_idx
     )
     
     # デフォルト値（境界が見つからない場合）
