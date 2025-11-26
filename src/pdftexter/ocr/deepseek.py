@@ -12,6 +12,14 @@ from pdftexter.ocr.config import OCRConfig, load_config
 from pdftexter.ocr.vllm_wrapper import VLLMWrapper
 from pdftexter.pdf.processor import extract_pdf_pages_as_images, validate_pdf
 
+# HuggingFace版のインポート（オプション）
+try:
+    from pdftexter.ocr.hf_wrapper import HuggingFaceOCRWrapper
+    HF_AVAILABLE = True
+except ImportError:
+    HF_AVAILABLE = False
+    HuggingFaceOCRWrapper = None
+
 
 class DeepSeekOCR:
     """DeepSeek-OCR統合クラス"""
@@ -29,23 +37,47 @@ class DeepSeekOCR:
         """
         self.config = config or load_config()
         
-        # セットアップの検証
-        if verify_setup:
-            from pdftexter.ocr.model_checker import verify_ocr_setup
-            is_ready, message = verify_ocr_setup()
-            if not is_ready:
-                raise RuntimeError(f"OCRセットアップが完了していません: {message}")
+        # HuggingFace版を使用するかどうか
+        self.use_hf = self.config.deepseek_ocr.use_huggingface
         
-        # モデル名を設定から取得
-        model_name = self.config.deepseek_ocr.model_name
-        
-        self.vllm_wrapper = VLLMWrapper(
-            server_url=self.config.deepseek_ocr.vllm_server_url,
-            model_name=model_name,
-            timeout=self.config.deepseek_ocr.timeout,
-            max_retries=self.config.deepseek_ocr.max_retries,
-            retry_delay=self.config.deepseek_ocr.retry_delay,
-        )
+        if self.use_hf:
+            # HuggingFace Transformers版を使用（vLLMサーバー不要）
+            if not HF_AVAILABLE:
+                raise ImportError(
+                    "HuggingFace Transformers版を使用するには、transformersが必要です。\n"
+                    "以下のコマンドでインストールしてください:\n"
+                    "  pip install transformers pillow torch\n"
+                    "または:\n"
+                    "  uv pip install transformers pillow torch"
+                )
+            
+            if HuggingFaceOCRWrapper is None:
+                raise RuntimeError("HuggingFaceOCRWrapperが利用できません")
+            
+            self.hf_wrapper = HuggingFaceOCRWrapper(
+                model_path=self.config.deepseek_ocr.model_path
+            )
+            self.vllm_wrapper = None
+        else:
+            # vLLM版を使用（従来の方法）
+            # セットアップの検証
+            if verify_setup:
+                from pdftexter.ocr.model_checker import verify_ocr_setup
+                is_ready, message = verify_ocr_setup()
+                if not is_ready:
+                    raise RuntimeError(f"OCRセットアップが完了していません: {message}")
+            
+            # モデル名を設定から取得
+            model_name = self.config.deepseek_ocr.model_name
+            
+            self.vllm_wrapper = VLLMWrapper(
+                server_url=self.config.deepseek_ocr.vllm_server_url,
+                model_name=model_name,
+                timeout=self.config.deepseek_ocr.timeout,
+                max_retries=self.config.deepseek_ocr.max_retries,
+                retry_delay=self.config.deepseek_ocr.retry_delay,
+            )
+            self.hf_wrapper = None
     
     def process_image(
         self,
@@ -77,13 +109,21 @@ class DeepSeekOCR:
             else:
                 prompt = "<image>\nFree OCR."
         
-        # vLLM APIを呼び出し
-        result = self.vllm_wrapper.call_vllm_api(
-            image_path=str(image_file),
-            prompt=prompt,
-            max_tokens=self.config.deepseek_ocr.max_tokens,
-            temperature=self.config.deepseek_ocr.temperature,
-        )
+        # HuggingFace版またはvLLM版を使用
+        if self.use_hf:
+            # HuggingFace Transformers版（直接推論）
+            result = self.hf_wrapper.process_image(
+                image_path=str(image_file),
+                prompt=prompt,
+            )
+        else:
+            # vLLM APIを呼び出し
+            result = self.vllm_wrapper.call_vllm_api(
+                image_path=str(image_file),
+                prompt=prompt,
+                max_tokens=self.config.deepseek_ocr.max_tokens,
+                temperature=self.config.deepseek_ocr.temperature,
+            )
         
         return result
     

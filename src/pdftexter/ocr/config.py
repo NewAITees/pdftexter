@@ -16,6 +16,7 @@ class DeepSeekOCRConfig(BaseModel):
     model_path: str = Field(..., description="DeepSeek-OCRモデルのパス（ローカル推論時）")
     model_name: str = Field("deepseek-ocr", description="vLLM APIで使用するモデル名")
     vllm_server_url: Optional[str] = Field(None, description="vLLMサーバーのURL（Noneの場合はローカル実行）")
+    use_huggingface: bool = Field(False, description="HuggingFace Transformers版を使用するか（vLLMサーバー不要）")
     max_tokens: int = Field(4096, description="最大トークン数")
     temperature: float = Field(0.1, description="温度パラメータ")
     output_format: str = Field("markdown", description="出力形式（markdown or plain）")
@@ -115,6 +116,7 @@ def get_default_config() -> OCRConfig:
             model_path=os.environ.get("DEEPSEEK_OCR_MODEL_PATH", "/path/to/DeepSeek-OCR"),
             model_name=os.environ.get("DEEPSEEK_OCR_MODEL_NAME", "deepseek-ocr"),
             vllm_server_url=os.environ.get("VLLM_SERVER_URL"),
+            use_huggingface=os.environ.get("DEEPSEEK_OCR_USE_HF", "false").lower() == "true",
             max_tokens=4096,
             temperature=0.1,
             output_format="markdown",

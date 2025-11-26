@@ -1,0 +1,46 @@
+# DeepSeek-OCR設定ファイル
+# このファイルは実際の設定値を使用します
+
+deepseek_ocr:
+  # ダウンロードしたモデルのパス（Windows環境用の絶対パス）
+  model_path: "C:/analysis2/pdftexter/models/DeepSeek-OCR"
+  
+  # vLLM APIで使用するモデル名
+  model_name: "deepseek-ocr"
+  
+  # vLLMサーバーのURL（ローカル実行時はnullでOK、デフォルトはhttp://localhost:8000）
+  vllm_server_url: null
+  
+  # HuggingFace Transformers版を使用するか（trueにするとvLLMサーバー不要、より簡単）
+  # false: vLLM版を使用（高性能だがセットアップが複雑）
+  # true: HuggingFace版を使用（vLLMサーバー不要、セットアップが簡単）
+  use_huggingface: true
+  
+  # 推論パラメータ
+  max_tokens: 4096
+  temperature: 0.1
+  
+  # 出力形式
+  output_format: "markdown"  # "markdown" or "plain"
+  
+  # タイムアウト設定（秒）
+  timeout: 300
+  
+  # リトライ設定
+  max_retries: 3
+  retry_delay: 5
+
+# 出力設定
+output:
+  # デフォルト出力ディレクトリ
+  base_dir: "./output"
+  
+  # 画像保存先
+  images_dir: "./output/images"
+  
+  # PDF保存先
+  pdfs_dir: "./output/pdfs"
+  
+  # テキスト保存先
+  texts_dir: "./output/texts"
+
