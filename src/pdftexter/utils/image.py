@@ -31,7 +31,18 @@ def find_content_boundaries(
     Returns:
         (左端の位置, 右端の位置)のタプル
         この値は、trim_image()関数で使用して画像をトリミングします
+        
+    Raises:
+        ValueError: 画像の高さが不足している場合
     """
+    # 画像の高さをチェック（20行目にアクセスするため、最低21行必要）
+    min_height = 21
+    if img.shape[0] < min_height:
+        raise ValueError(
+            f"画像の高さが不足しています（{img.shape[0]}px < {min_height}px）。"
+            f"境界検出には最低{min_height}pxの高さが必要です。"
+        )
+    
     # 比較に使用する行インデックス（20行目を使用）
     row_idx = 20
     
