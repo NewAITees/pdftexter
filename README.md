@@ -17,10 +17,10 @@ pdftexterは、Kindle電子書籍をPDF化し、DeepSeek-OCRを使用してPDF�
    - 画像の自動ソート
    - 各画像のサイズに合わせたPDFページ生成
 
-3. **PDF → テキスト**: DeepSeek-OCR（vLLM版）を使用してPDFからMarkdown形式のテキストを抽出
+3. **PDF → テキスト**: DeepSeek-OCR（HuggingFace Transformers版）を使用してPDFからMarkdown形式のテキストを抽出
    - 長文脈対応の高精度OCR
    - Markdown形式での出力
-   - 画像の自動抽出
+   - GPU対応（CUDA）で高速処理
 
 ### 統合ワークフロー
 
@@ -61,156 +61,169 @@ pdftexter/
 
 ### 前提条件
 
-- Python 3.12+
-- Poetry（依存関係管理）
-- WSL2 + bash環境（Windows環境、Kindleスクリーンショット機能使用時）
-- CUDA対応GPU（DeepSeek-OCR使用時）
-- poppler-utils（PDF処理用、`apt-get install poppler-utils` または `brew install poppler`）
+- **Python 3.12+**
+- **uv**（依存関係管理、高速インストール） - [インストール](https://docs.astral.sh/uv/getting-started/installation/)
+- **Windows環境**（Kindleスクリーンショット機能使用時）
+- **CUDA対応GPU**（DeepSeek-OCR使用時、推奨。CPUでも動作可能）
+- **poppler-utils**（PDF処理用）
+  - Windows: [Poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases/) をダウンロードして`bin`をPATHに追加
 
 ### インストール
+
+#### 方法1: 自動セットアップ（推奨）
+
+**一発でセットアップ完了**：以下のコマンドで、DeepSeek-OCRを含むすべての依存関係を公式推奨環境に合わせてインストールします。
+
+```powershell
+# PowerShellで実行
+.\scripts\setup_deepseek_ocr.ps1
+```
+
+このスクリプトは以下を自動実行します：
+1. 仮想環境の作成
+2. 基本依存関係のインストール
+3. PyTorch 2.6.0 (CUDA 11.8版) のインストール
+4. Transformers 4.46.3 のインストール
+5. その他の依存関係（einops, addict, easydict）のインストール
+6. Flash Attention のインストール試行（オプション）
+
+#### 方法2: 手動インストール
 
 ```bash
 # リポジトリのクローン
 git clone <repository-url>
 cd pdftexter
 
-# Poetry環境のセットアップ
-poetry install
+# 仮想環境の作成と依存関係インストール
+uv venv
+uv pip install -e ".[dev]"
 
-# 仮想環境のアクティベート
-poetry shell
+# DeepSeek-OCR公式推奨環境に合わせてインストール
+uv pip uninstall torch torchvision torchaudio transformers tokenizers
+uv pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu118
+uv pip install transformers==4.46.3 tokenizers==0.20.3
+uv pip install einops addict easydict
+
+# Flash Attention（オプション、CUDA環境によっては失敗する可能性あり）
+uv pip install flash-attn==2.7.3 --no-build-isolation
 ```
 
 ### クイックスタート例
 
 ```bash
 # 1. PDFファイルをテキストに変換
-poetry run pdftexter pdf-to-text sample.pdf -o output.md
+uv run pdftexter pdf-to-text sample.pdf -o output.md
 
-# 2. 画像フォルダからPDF→Textまで一括処理
-poetry run pdftexter full ./images -o result.md
+# 2. Kindle → PDF → Markdown（推奨、PDFレビュー機能付き）
+uv run pdftexter kindle-to-markdown -o result.md
+
+# 3. 画像フォルダからPDF→Textまで一括処理
+uv run pdftexter full ./images -o result.md
 ```
 
 ### DeepSeek-OCR環境のセットアップ
 
-DeepSeek-OCRを使用するには、**2つの方法**があります：
+**簡単セットアップ（推奨）**：HuggingFace Transformers版を使用します。vLLMサーバー不要で、GPU/CPUで直接実行できます。
 
-#### 方法1: HuggingFace Transformers版（推奨・簡単）
+#### ステップ1: Popplerのインストール（PDF処理用）
 
-vLLMサーバー不要で、より簡単にセットアップできます。
+Windows環境では、PopplerをインストールしてPATHに追加する必要があります。
 
-##### 1. モデルのダウンロード
+**自動インストール（推奨）**：
+```powershell
+.\scripts\install_poppler_windows.ps1
+```
+
+このスクリプトは以下を自動実行します：
+1. 最新のpoppler-windowsをダウンロード
+2. `%LOCALAPPDATA%\poppler` にインストール
+3. PATH環境変数に追加
+
+**手動インストール**：
+1. [poppler-windows releases](https://github.com/oschwartz10612/poppler-windows/releases/) から最新の `Release-*.zip` をダウンロード
+2. 解凍して `C:\poppler` などに配置
+3. `Library\bin` フォルダをPATH環境変数に追加
+4. PowerShellを再起動
+
+詳細は `scripts/install_poppler_windows.md` を参照してください。
+
+#### ステップ2: DeepSeek-OCRモデルのダウンロード
 
 ```bash
 # モデルをダウンロード（約6.7GB）
-poetry run python scripts/download_deepseek_model.py --model-path ./models/DeepSeek-OCR
-
-# または、huggingface_hubが未インストールの場合は自動インストール
-poetry run python scripts/download_deepseek_model.py --model-path ./models/DeepSeek-OCR --install-hub
+uv run python scripts/download_deepseek_model.py --model-path ./models/DeepSeek-OCR
 ```
 
-モデルは `./models/DeepSeek-OCR` にダウンロードされます（約6.7GB）。
+モデルは `./models/DeepSeek-OCR` にダウンロードされます。
 
-##### 2. 依存関係のインストール
+#### ステップ3: 設定ファイルの確認
 
-```bash
-# transformersとtorchをインストール
-uv pip install transformers pillow torch
-```
-
-##### 3. 設定ファイルの準備
-
-`config/ocr_config.yaml` で `use_huggingface: true` を設定します（デフォルトでtrueになっています）。
-
-これで完了です！vLLMサーバーを起動する必要はありません。
-
----
-
-#### 方法2: vLLM版（高性能・セットアップが複雑）
-
-より高性能ですが、vLLMサーバーのセットアップが必要です。
-
-##### 1. モデルのダウンロード
-
-```bash
-# DeepSeek-OCRリポジトリのクローン
-git clone https://github.com/deepseek-ai/DeepSeek-OCR.git
-cd DeepSeek-OCR
-
-# 仮想環境の作成（Python 3.12.9推奨）
-uv venv -p=3.12.9
-
-# 依存関係のインストール
-uv pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
-    --index-url https://download.pytorch.org/whl/cu118
-
-# vLLMのインストール
-wget https://github.com/vllm-project/vllm/releases/download/v0.8.5/vllm-0.8.5+cu118-cp38-abi3-manylinux1_x86_64.whl
-uv pip install vllm-0.8.5+cu118-cp38-abi3-manylinux1_x86_64.whl
-
-# その他の依存関係
-uv pip install -r requirements.txt
-uv pip install flash-attn==2.7.3 --no-build-isolation
-```
-
-**注意**: モデルは上記の手順1で既にダウンロード済みです。DeepSeek-OCRリポジトリ内に再度ダウンロードする必要はありません。
-
-#### 3. 設定ファイルの準備
-
-`config/ocr_config.yaml` を作成し、ダウンロードしたモデルのパスを設定します：
+`config/ocr_config.yaml` を開き、以下を確認：
 
 ```yaml
 deepseek_ocr:
-  # ダウンロードしたモデルのパス（絶対パス推奨）
-  model_path: "/home/perso/analysis/pdftexter/models/DeepSeek-OCR"
-  
-  # vLLM APIで使用するモデル名
-  model_name: "deepseek-ocr"
-  
-  # vLLMサーバーのURL（ローカル実行時はnullでOK）
-  vllm_server_url: null
+  # モデルのパス（必要に応じて修正）
+  model_path: "C:/analysis2/pdftexter/models/DeepSeek-OCR"  # Windowsの場合、絶対パス推奨
+
+  # HuggingFace版を使用（デフォルト）
+  use_huggingface: true  # これでvLLMサーバー不要
 ```
 
-
-DeepSeek-OCRを使用するには、vLLMサーバーを起動する必要があります：
+#### ステップ4: 動作確認
 
 ```bash
-# DeepSeek-OCRディレクトリで実行
-cd DeepSeek-OCR
-source .venv/bin/activate  # 仮想環境をアクティベート
+# セットアップ検証付きで実行（推奨）
+uv run pdftexter pdf-to-text input.pdf -o output.md
 
-# vLLMサーバーを起動（モデルパスは設定ファイルで指定したパスを使用）
-python -m vllm.entrypoints.openai.api_server \
-    --model /path/to/deepseek-ocr-model \
-    --port 8000 \
-    --trust-remote-code
+# セットアップ検証をスキップして実行
+uv run pdftexter pdf-to-text input.pdf -o output.md --skip-verify
 ```
 
-**重要**: 
-- `--model` には、手順1でダウンロードしたモデルのパス（`./models/DeepSeek-OCR` の絶対パス）を指定してください
-- `--trust-remote-code` オプションが必要な場合があります
-- サーバーはバックグラウンドで実行するか、別のターミナルで起動してください
+**完了！** これでDeepSeek-OCRが使えます。
 
-詳細なセットアップ手順は [PLAN.md](docs/PLAN.md) を参照してください。
+---
+
+**高度な設定**：vLLM版を使用する場合は、`config/ocr_config.yaml` で `use_huggingface: false` に設定し、vLLMサーバーをセットアップしてください。詳細は [docs/PLAN.md](docs/PLAN.md) を参照。
 
 ## 📖 使用方法
 
 ### 統合CLI（推奨）
 
-pdftexterは統合CLIを提供しており、1つのコマンドでワークフローを実行できます。
+pdftexterは統合CLIを提供しており、Kindle電子書籍をMarkdownテキストに変換できます。
+
+#### 📱 Kindle → Markdown（全自動・推奨）
+
+```bash
+# Kindle for PCからMarkdownまで一括変換（PDFレビュー機能付き）
+uv run pdftexter kindle-to-markdown -o result.md
+```
+
+このコマンドは以下を**すべて自動**で実行します：
+1. 📸 Kindleスクリーンショット撮影（GUI）
+2. 📄 画像 → PDF変換
+3. 👀 **PDFレビュー**（品質確認、続行/やり直し/終了を選択可能）
+4. 📝 PDF → Markdown変換（OCR）
+
+#### その他のコマンド
 
 ```bash
 # ヘルプ表示
-poetry run pdftexter --help
+uv run pdftexter --help
 
-# PDF → Text変換
-poetry run pdftexter pdf-to-text input.pdf -o output.md
+# PDF → Text変換（既にPDFがある場合）
+uv run pdftexter pdf-to-text input.pdf -o output.md
 
-# Kindle → PDF → Text の一括処理（画像フォルダから開始）
-poetry run pdftexter full image_folder -o output.md
+# 画像フォルダ → PDF → Text の一括処理（既に画像がある場合）
+uv run pdftexter full image_folder -o output.md
 ```
 
-### 1. Kindle → PDF
+---
+
+### 詳細な手順（個別実行）
+
+個別にステップを実行したい場合は、以下の手順を参照してください。
+
+### 1. Kindle → 画像（スクリーンショット撮影）
 
 #### ステップ1: Kindleスクリーンショット撮影
 
@@ -221,9 +234,9 @@ poetry run pdftexter full image_folder -o output.md
 
 2. **スクリプトの実行**
    ```bash
-   poetry run kindle-screenshot
+   uv run kindle-screenshot
    # または
-   poetry run python scripts/kindle_screenshot.py
+   uv run python scripts/kindle_screenshot.py
    ```
 
 3. **GUI設定**
@@ -238,9 +251,9 @@ poetry run pdftexter full image_folder -o output.md
 #### ステップ2: 画像 → PDF変換
 
 ```bash
-poetry run kindle-pdf-convert
+uv run kindle-pdf-convert
 # または
-poetry run python scripts/kindle_pdf_convert.py
+uv run python scripts/kindle_pdf_convert.py
 ```
 
 - 画像フォルダを選択
@@ -251,55 +264,53 @@ poetry run python scripts/kindle_pdf_convert.py
 
 #### 事前準備：DeepSeek-OCRのセットアップ
 
-**重要**: OCR処理を実行する前に、DeepSeek-OCRのセットアップが必要です。
+**重要**: OCR処理を実行する前に、DeepSeek-OCRモデルのダウンロードが必要です。
 
-1. **モデルのダウンロードとセットアップ**
-   - DeepSeek-OCRリポジトリをクローン
-   - 依存関係をインストール
-   - vLLMサーバーを起動
+詳細は上記「**DeepSeek-OCR環境のセットアップ**」セクションを参照してください。
 
-   詳細は「DeepSeek-OCR環境のセットアップ」セクションを参照してください。
+**クイックチェック**：
+```bash
+# OCRセットアップが完了しているか自動検証されます
+uv run pdftexter pdf-to-text input.pdf -o output.md
+```
 
-2. **セットアップの検証**
-   ```bash
-   # OCRセットアップが完了しているか自動検証されます
-   poetry run pdftexter pdf-to-text input.pdf -o output.md
-   ```
-
-   セットアップが完了していない場合、エラーメッセージとセットアップ手順が表示されます。
+セットアップが完了していない場合、エラーメッセージが表示されます。
 
 #### DeepSeek-OCRを使用した変換
 
 ```bash
 # 統合CLI経由（推奨、セットアップ検証付き）
-poetry run pdftexter pdf-to-text input.pdf -o output.md
+uv run pdftexter pdf-to-text input.pdf -o output.md
 
 # セットアップ検証をスキップする場合
-poetry run pdftexter pdf-to-text input.pdf -o output.md --skip-verify
+uv run pdftexter pdf-to-text input.pdf -o output.md --skip-verify
 
 # 個別コマンド経由
-poetry run pdf-to-text input.pdf -o output.md
+uv run pdf-to-text input.pdf -o output.md
 
 # スクリプト経由
-poetry run python scripts/pdf_to_text.py input.pdf -o output.md
+uv run python scripts/pdf_to_text.py input.pdf -o output.md
 ```
 
-**注意**: OCR処理は**一枚ずつ画像を順次処理**します。PDFの各ページが画像に変換され、それぞれがvLLM APIに送信されます。
+**注意**: 
+- OCR処理は**一枚ずつ画像を順次処理**します。PDFの各ページが画像に変換され、それぞれがOCR処理されます。
+- GPUが利用可能な場合は自動的にGPUを使用します（CPUでも動作可能ですが、処理が遅くなります）。
+- Flash Attentionがインストールされていない場合でも動作しますが、パフォーマンスが低下する可能性があります。
 
 #### オプション
 
 ```bash
 # 設定ファイルを指定
-poetry run pdftexter pdf-to-text input.pdf -c config/ocr_config.yaml
+uv run pdftexter pdf-to-text input.pdf -c config/ocr_config.yaml
 
 # カスタムプロンプトを指定
-poetry run pdftexter pdf-to-text input.pdf -p "カスタムプロンプト"
+uv run pdftexter pdf-to-text input.pdf -p "カスタムプロンプト"
 
 # 出力形式を指定（markdown or plain）
-poetry run pdftexter pdf-to-text input.pdf --format plain
+uv run pdftexter pdf-to-text input.pdf --format plain
 
 # 進捗表示を無効化
-poetry run pdftexter pdf-to-text input.pdf --no-progress
+uv run pdftexter pdf-to-text input.pdf --no-progress
 ```
 
 #### 設定ファイル
@@ -333,7 +344,7 @@ output:
 PDF生成後に品質を確認してからOCR処理に進むことができます：
 
 ```bash
-poetry run pdftexter kindle-to-markdown -o output.md
+uv run pdftexter kindle-to-markdown -o output.md
 ```
 
 このコマンドは以下を実行します：
@@ -345,13 +356,13 @@ poetry run pdftexter kindle-to-markdown -o output.md
 オプション：
 ```bash
 # PDFレビューをスキップ
-poetry run pdftexter kindle-to-markdown -o output.md --skip-review
+uv run pdftexter kindle-to-markdown -o output.md --skip-review
 
 # PDF出力先を指定
-poetry run pdftexter kindle-to-markdown --pdf-output-dir ./pdfs --pdf-filename book.pdf
+uv run pdftexter kindle-to-markdown --pdf-output-dir ./pdfs --pdf-filename book.pdf
 
 # OCR設定を指定
-poetry run pdftexter kindle-to-markdown --ocr-config config/ocr_config.yaml
+uv run pdftexter kindle-to-markdown --ocr-config config/ocr_config.yaml
 ```
 
 #### 3.2 画像フォルダから一括処理
@@ -359,7 +370,7 @@ poetry run pdftexter kindle-to-markdown --ocr-config config/ocr_config.yaml
 画像フォルダから最終的なMarkdownファイルまで一括で処理します：
 
 ```bash
-poetry run pdftexter full image_folder -o output.md
+uv run pdftexter full image_folder -o output.md
 ```
 
 このコマンドは以下を自動実行します：
@@ -371,13 +382,13 @@ poetry run pdftexter full image_folder -o output.md
 オプション：
 ```bash
 # PDF出力先を指定
-poetry run pdftexter full image_folder --pdf-output-dir ./pdfs --pdf-filename book.pdf
+uv run pdftexter full image_folder --pdf-output-dir ./pdfs --pdf-filename book.pdf
 
 # OCR設定を指定
-poetry run pdftexter full image_folder --ocr-config config/ocr_config.yaml
+uv run pdftexter full image_folder --ocr-config config/ocr_config.yaml
 
 # OCR出力形式を指定
-poetry run pdftexter full image_folder --ocr-format plain
+uv run pdftexter full image_folder --ocr-format plain
 ```
 
 ## 🛠️ 開発
@@ -391,17 +402,17 @@ poetry run pdftexter full image_folder --ocr-format plain
 
 ```bash
 # 開発依存関係のインストール
-poetry install --with dev
+uv pip install -e ".[dev]" --with dev
 
 # 型チェック
-poetry run mypy src/
+uv run mypy src/
 
 # テスト実行
-poetry run pytest
+uv run pytest
 
 # コードフォーマット
-poetry run black src/
-poetry run isort src/
+uv run black src/
+uv run isort src/
 ```
 
 ### コード品質
@@ -415,15 +426,15 @@ poetry run isort src/
 
 ```bash
 # 統合CLI
-poetry run pdftexter --help                          # ヘルプ表示
-poetry run pdftexter pdf-to-text --help              # PDF→Text変換のヘルプ
-poetry run pdftexter kindle-to-markdown --help       # Kindle→Markdown変換のヘルプ
-poetry run pdftexter full --help                     # 一括処理のヘルプ
+uv run pdftexter --help                          # ヘルプ表示
+uv run pdftexter pdf-to-text --help              # PDF→Text変換のヘルプ
+uv run pdftexter kindle-to-markdown --help       # Kindle→Markdown変換のヘルプ
+uv run pdftexter full --help                     # 一括処理のヘルプ
 
 # 個別コマンド
-poetry run kindle-screenshot                         # Kindleスクリーンショット（GUI）
-poetry run kindle-pdf-convert                        # 画像→PDF変換（GUI）
-poetry run pdf-to-text input.pdf -o output.md        # PDF→Text変換（CLI）
+uv run kindle-screenshot                         # Kindleスクリーンショット（GUI）
+uv run kindle-pdf-convert                        # 画像→PDF変換（GUI）
+uv run pdf-to-text input.pdf -o output.md        # PDF→Text変換（CLI）
 ```
 
 ### OCR処理の仕組み
@@ -431,25 +442,25 @@ poetry run pdf-to-text input.pdf -o output.md        # PDF→Text変換（CLI）
 #### 処理フロー
 
 1. **PDF → 画像変換**: PDFの各ページを画像に変換（pdf2image使用）
-2. **一枚ずつOCR処理**: 各画像を順次vLLM APIに送信してOCR処理
+2. **一枚ずつOCR処理**: 各画像をDeepSeek-OCRモデルで順次処理（GPU/CPU）
 3. **結果の結合**: 各ページのOCR結果を結合してMarkdown形式で出力
 
-**注意**: 現在の実装では、**一枚ずつ画像を順次処理**します。バッチ処理が必要な場合は、vLLM APIの仕様に応じて実装を変更する必要があります。
+**推奨**: GPUを使用すると高速に処理できます（RTX 4090で実測）。
 
 #### モデルダウンロード
 
-DeepSeek-OCRモデルは自動ダウンロードされません。以下の手順で手動セットアップが必要です：
+DeepSeek-OCRモデルは手動でダウンロードが必要です：
 
-1. DeepSeek-OCRリポジトリをクローン
-2. 依存関係をインストール
-3. vLLMサーバーを起動
+```bash
+# モデルをダウンロード（約6.7GB）
+uv run python scripts/download_deepseek_model.py --model-path ./models/DeepSeek-OCR
+```
 
 詳細は「DeepSeek-OCR環境のセットアップ」セクションを参照してください。
 
-OCR処理実行時には、自動的にセットアップが完了しているか検証されます。
-
 ## 📚 ドキュメント
 
+- [SETUP.md](docs/SETUP.md) - 詳細なセットアップガイド
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) - アーキテクチャ設計書
 - [PLAN.md](docs/PLAN.md) - 実装プランとロードマップ
 
@@ -457,8 +468,7 @@ OCR処理実行時には、自動的にセットアップが完了している�
 
 ### コアライブラリ
 - Python 3.12+
-- Poetry（依存関係管理）
-- pyenv（Pythonバージョン管理）
+- uv（依存関係管理、高速インストール）
 
 ### Kindle関連
 - pyautogui（自動操作）
@@ -471,9 +481,10 @@ OCR処理実行時には、自動的にセットアップが完了している�
 - Pillow（画像読み込み）
 
 ### OCR関連
-- vLLM（推論エンジン）
-- torch（深層学習フレームワーク）
+- transformers（HuggingFace、モデル実行）
+- torch（深層学習フレームワーク、CUDA対応）
 - DeepSeek-OCR（OCRモデル）
+- pdf2image（PDF画像変換）
 
 ### 開発・品質管理
 - mypy（静的型チェック）
