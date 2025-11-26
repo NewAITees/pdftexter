@@ -9,9 +9,12 @@ from typing import Optional
 
 from pdftexter.ocr.config import load_config
 from pdftexter.ocr.deepseek import DeepSeekOCR
+
+
+def progress_callback(current: int, total: int) -> None:
     """
     進捗表示コールバック関数
-    
+
     Args:
         current: 現在のページ番号
         total: 総ページ数
@@ -81,6 +84,11 @@ def main() -> int:
         action="store_true",
         help="一時画像を保持する（デバッグ用）",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="中断した処理を再開する（進捗ファイルから続きから開始）",
+    )
     
     args = parser.parse_args()
     
@@ -134,6 +142,7 @@ def main() -> int:
             prompt=args.prompt,
             progress_callback=callback,
             keep_temp_images=args.keep_temp_images,
+            resume=args.resume,
         )
         
         print(f"完了: {output_file}")

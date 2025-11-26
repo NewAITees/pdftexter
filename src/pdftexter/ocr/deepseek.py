@@ -5,6 +5,7 @@ DeepSeek-OCR統合モジュール
 import os
 import shutil
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -229,9 +230,14 @@ class DeepSeekOCR:
         output_dir: Optional[str] = None,
         prompt: Optional[str] = None,
         progress_callback: Optional[callable] = None,
+        keep_temp_images: bool = False,
+        resume: bool = False,
     ) -> str:
         """
-        PDFファイルをOCR処理してファイルに保存する
+        PDFファイルをOCR処理してファイルに保存する（逐次書き込み方式）
+        
+        メモリ効率を考慮し、各ページの処理結果を即座にファイルに書き込みます。
+        進捗情報も保存されるため、中断後も再開可能です。
         
         Args:
             pdf_path: PDFファイルのパス
@@ -239,19 +245,132 @@ class DeepSeekOCR:
             output_dir: 中間画像を保存するディレクトリ（Noneの場合は一時ディレクトリ）
             prompt: プロンプトテキスト（Noneの場合はデフォルト）
             progress_callback: 進捗コールバック関数
+            keep_temp_images: 一時画像を保持するか（デフォルト: False）
+            resume: 中断した処理を再開するか（デフォルト: False）
             
         Returns:
             出力ファイルのパス
         """
-        # OCR処理を実行
-        result_text = self.process_pdf(pdf_path, output_dir, prompt, progress_callback)
+        from pdftexter.pdf.processor import validate_pdf, extract_pdf_pages_as_images
         
-        # ファイルに保存
+        # PDFの検証
+        is_valid, error_msg = validate_pdf(pdf_path)
+        if not is_valid:
+            raise ValueError(error_msg or "PDFファイルが無効です")
+        
+        # 出力ファイルのパス
         output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(result_text)
+        # 進捗ファイルのパス
+        progress_file = output_path.with_suffix(output_path.suffix + ".progress")
         
-        return str(output_path)
+        # 出力ディレクトリの設定
+        is_temp_dir = False
+        if output_dir is None:
+            import tempfile
+            output_dir = tempfile.mkdtemp(prefix="pdftexter_ocr_")
+            is_temp_dir = True
+        else:
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # 再開処理: 進捗ファイルから最後に処理したページを取得
+        start_page = 1
+        if resume and progress_file.exists():
+            try:
+                with open(progress_file, "r", encoding="utf-8") as f:
+                    last_line = f.read().strip().split("\n")[-1]
+                    if last_line.startswith("page:"):
+                        start_page = int(last_line.split(":")[1]) + 1
+                        print(f"進捗を再開します: ページ {start_page} から", file=sys.stderr)
+            except Exception as e:
+                print(f"警告: 進捗ファイルの読み込みに失敗しました: {e}", file=sys.stderr)
+                start_page = 1
+        
+        try:
+            # PDFを画像に変換
+            image_paths = extract_pdf_pages_as_images(pdf_path, output_dir)
+            total_pages = len(image_paths)
+            
+            # ファイルを開いて逐次書き込み
+            file_mode = "a" if resume and output_path.exists() else "w"
+            with open(output_path, file_mode, encoding="utf-8") as f:
+                # 新規作成の場合はヘッダーを書き込み
+                if file_mode == "w":
+                    if self.config.deepseek_ocr.output_format == "markdown":
+                        f.write("# OCR結果\n\n")
+                    else:
+                        f.write("OCR結果\n\n")
+                
+                failed_pages: List[int] = []
+                page_separator = "\n\n---\n\n" if self.config.deepseek_ocr.output_format == "markdown" else "\n\n"
+                
+                for i, image_path in enumerate(image_paths, start_page - 1):
+                    page_num = i + 1
+                    
+                    # 進捗コールバック
+                    if progress_callback:
+                        progress_callback(page_num, total_pages)
+                    
+                    try:
+                        # 一枚ずつ画像をOCR処理
+                        page_result = self.process_image(image_path, prompt)
+                        
+                        # 即座にファイルに書き込み（メモリに蓄積しない）
+                        if page_num > 1:
+                            f.write(page_separator)
+                        f.write(page_result)
+                        f.flush()  # バッファをフラッシュして確実に書き込む
+                        
+                        # 進捗を保存
+                        with open(progress_file, "w", encoding="utf-8") as pf:
+                            pf.write(f"page:{page_num}\n")
+                            pf.write(f"total:{total_pages}\n")
+                            pf.write(f"timestamp:{time.time()}\n")
+                        
+                    except Exception as e:
+                        # エラーが発生したページを記録
+                        error_msg = f"ページ {page_num} の処理に失敗しました: {e}"
+                        print(f"警告: {error_msg}", file=sys.stderr)
+                        failed_pages.append(page_num)
+                        
+                        # エラーコメントを書き込み
+                        if page_num > 1:
+                            f.write(page_separator)
+                        f.write(f"<!-- {error_msg} -->\n")
+                        f.flush()
+                
+                # フッターを書き込み（オプション）
+                if self.config.deepseek_ocr.output_format == "markdown":
+                    f.write("\n\n---\n\n*OCR処理完了*\n")
+            
+            # 全ページが失敗した場合は例外を発生
+            if len(failed_pages) == total_pages:
+                raise RuntimeError(
+                    f"すべてのページのOCR処理に失敗しました。"
+                )
+            
+            # 一部のページが失敗した場合は警告を表示
+            if failed_pages:
+                print(
+                    f"警告: {len(failed_pages)}/{total_pages} ページの処理に失敗しました: {failed_pages}",
+                    file=sys.stderr
+                )
+            
+            # 進捗ファイルを削除（正常完了時）
+            if progress_file.exists():
+                try:
+                    progress_file.unlink()
+                except Exception as e:
+                    print(f"警告: 進捗ファイルの削除に失敗しました: {e}", file=sys.stderr)
+            
+            return str(output_path)
+            
+        finally:
+            # 一時ディレクトリのクリーンアップ（keep_temp_imagesがFalseの場合のみ）
+            if is_temp_dir and not keep_temp_images and os.path.exists(output_dir):
+                try:
+                    shutil.rmtree(output_dir)
+                except Exception as e:
+                    print(f"警告: 一時ディレクトリの削除に失敗しました: {e}", file=sys.stderr)
 
