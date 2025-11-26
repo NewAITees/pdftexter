@@ -1,0 +1,41 @@
+# DeepSeek-OCR設定ファイルのサンプル
+# このファイルを ocr_config.yaml にコピーして使用してください
+
+deepseek_ocr:
+  # DeepSeek-OCRモデルのパス（ローカル推論時、またはモデル検証用）
+  model_path: "/path/to/DeepSeek-OCR"
+  
+  # vLLM APIで使用するモデル名（vLLMサーバーで指定したモデル名）
+  model_name: "deepseek-ocr"
+  
+  # vLLMサーバーのURL（nullの場合は http://localhost:8000 を使用）
+  vllm_server_url: null
+  
+  # 推論パラメータ
+  max_tokens: 4096
+  temperature: 0.1
+  
+  # 出力形式
+  output_format: "markdown"  # "markdown" or "plain"
+  
+  # タイムアウト設定（秒）
+  timeout: 300
+  
+  # リトライ設定
+  max_retries: 3
+  retry_delay: 5
+
+# 出力設定
+output:
+  # デフォルト出力ディレクトリ
+  base_dir: "./output"
+  
+  # 画像保存先
+  images_dir: "./output/images"
+  
+  # PDF保存先
+  pdfs_dir: "./output/pdfs"
+  
+  # テキスト保存先
+  texts_dir: "./output/texts"
+
