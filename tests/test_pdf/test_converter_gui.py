@@ -1,16 +1,26 @@
 """
 PDF変換GUIモジュールのテスト
+
+注意: このテストはWindows環境での実行を想定しています。
+WSL環境ではスキップされます。
 """
 
 import os
+import sys
 import threading
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-# X11ディスプレイがない環境ではtkinterをスキップ
-if "DISPLAY" not in os.environ or not os.environ.get("DISPLAY"):
-    pytest.skip("GUI tests require DISPLAY", allow_module_level=True)
+# WSL環境またはX11ディスプレイがない環境ではスキップ
+# os.uname()はWindowsでは利用できないため、platformモジュールを使用
+import platform
+is_wsl = (
+    platform.system() == "Linux" and
+    ("microsoft" in platform.release().lower() or "WSL" in os.environ.get("WSL_DISTRO_NAME", ""))
+)
+if is_wsl or "DISPLAY" not in os.environ or not os.environ.get("DISPLAY"):
+    pytest.skip("GUI tests require Windows environment (not WSL)", allow_module_level=True)
 else:
     import tkinter as tk
     from pdftexter.pdf.converter import PDFConverterGUI
@@ -22,10 +32,17 @@ class TestPDFConverterGUI:
     @pytest.fixture
     def gui(self):
         """テスト用のGUIインスタンスを作成（モック使用）"""
-        with patch("pdftexter.pdf.converter.tk.Tk") as mock_tk:
+        with patch("pdftexter.pdf.converter.tk.Tk") as mock_tk, \
+             patch("pdftexter.pdf.converter.tk.StringVar") as mock_stringvar, \
+             patch("pdftexter.pdf.converter.tk.DoubleVar") as mock_doublevar, \
+             patch("pdftexter.pdf.converter.tk.Label"), \
+             patch("pdftexter.pdf.converter.tk.Entry"), \
+             patch("pdftexter.pdf.converter.tk.Button"):
             mock_root = MagicMock()
             mock_tk.return_value = mock_root
-            
+            mock_stringvar.return_value = MagicMock()
+            mock_doublevar.return_value = MagicMock()
+
             gui = PDFConverterGUI()
             gui.setup_gui()
             gui.root = mock_root

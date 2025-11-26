@@ -1,5 +1,8 @@
 """
-Kindleスクリーンショットモジュールのユニットテスト（X11不要）
+Kindleスクリーンショットモジュールのユニットテスト
+
+注意: このテストはWindows環境での実行を想定しています。
+WSL環境ではスキップされます。
 """
 
 import os
@@ -11,15 +14,15 @@ from unittest.mock import MagicMock, Mock, patch
 import numpy as np
 import pytest
 
-# pyautoguiをモック（インポート前に実行）
-if "DISPLAY" not in os.environ or not os.environ.get("DISPLAY"):
-    mock_pag = MagicMock()
-    mock_pag.size = MagicMock(return_value=(1920, 1080))
-    mock_pag.press = MagicMock()
-    mock_pag.moveTo = MagicMock()
-    mock_pag.click = MagicMock()
-    sys.modules["pyautogui"] = mock_pag
-    sys.modules["mouseinfo"] = MagicMock()
+# WSL環境ではテストをスキップ
+# os.uname()はWindowsでは利用できないため、platformモジュールを使用
+import platform
+is_wsl = (
+    platform.system() == "Linux" and
+    ("microsoft" in platform.release().lower() or "WSL" in os.environ.get("WSL_DISTRO_NAME", ""))
+)
+if is_wsl:
+    pytest.skip("Kindle tests require Windows environment (not WSL)", allow_module_level=True)
 
 from pdftexter.kindle.screenshot import KindleScreenshot, KindleScreenshotConfig
 
