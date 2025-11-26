@@ -43,28 +43,73 @@ class HuggingFaceOCRWrapper:
         self.model_path = model_path
         print(f"DeepSeek-OCRモデルを読み込み中: {model_path}...", file=sys.stderr)
         
+        # Flash Attention 2関連のエラーを回避するため、モンキーパッチを適用
+        # DeepSeek-OCRモデルのカスタムコードがLlamaFlashAttention2をインポートしようとするのを防ぎます
+        # LlamaFlashAttention2のダミークラスを定義
+        class DummyLlamaFlashAttention2:
+            """LlamaFlashAttention2のダミークラス（互換性のため）"""
+            pass
+        
+        # transformers.models.llama.modeling_llamaモジュールにダミークラスを追加
+        # これにより、モデルのカスタムコードがインポートエラーを起こさないようにします
+        try:
+            import transformers.models.llama.modeling_llama as llama_module
+            if not hasattr(llama_module, 'LlamaFlashAttention2'):
+                # LlamaFlashAttention2が存在しない場合、ダミークラスを追加
+                llama_module.LlamaFlashAttention2 = DummyLlamaFlashAttention2
+        except ImportError:
+            pass
+        
         try:
             # Tokenizerとモデルを読み込み（公式の推奨方法）
+            # 参考: https://github.com/deepseek-ai/DeepSeek-OCR
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_path,
                 trust_remote_code=True
             )
             
-            # Flash Attention 2を使用（可能な場合）
+            # モデルの読み込み（公式の推奨方法に従う）
+            # 公式READMEでは _attn_implementation='flash_attention_2' を推奨
+            # ただし、flash-attnがインストールされていない場合はフォールバック
+            use_flash_attention_2 = False
             try:
+                # flash-attnがインストールされているかチェック
+                import flash_attn  # noqa: F401
+                use_flash_attention_2 = True
+            except ImportError:
+                # flash-attnがインストールされていない場合は標準実装を使用
+                use_flash_attention_2 = False
+            
+            if use_flash_attention_2:
+                # 公式の推奨方法：flash_attention_2を使用
+                try:
+                    self.model = AutoModel.from_pretrained(
+                        model_path,
+                        _attn_implementation='flash_attention_2',
+                        trust_remote_code=True,
+                        use_safetensors=True,
+                    )
+                    print("✓ モデルを読み込みました（Flash Attention 2を使用）", file=sys.stderr)
+                except Exception as e:
+                    # flash_attention_2が使えない場合は標準実装にフォールバック
+                    error_msg = str(e)
+                    print(f"⚠ Flash Attention 2の使用に失敗しました: {error_msg}", file=sys.stderr)
+                    print("⚠ 標準のattention実装を使用します", file=sys.stderr)
+                    self.model = AutoModel.from_pretrained(
+                        model_path,
+                        trust_remote_code=True,
+                        use_safetensors=True,
+                    )
+                    print("✓ モデルを読み込みました（標準のattention実装を使用）", file=sys.stderr)
+            else:
+                # flash-attnがインストールされていない場合は標準実装を使用
                 self.model = AutoModel.from_pretrained(
                     model_path,
-                    _attn_implementation='flash_attention_2',
                     trust_remote_code=True,
                     use_safetensors=True,
                 )
-            except Exception:
-                # Flash Attention 2が使えない場合は通常の方法で読み込み
-                self.model = AutoModel.from_pretrained(
-                    model_path,
-                    trust_remote_code=True,
-                    use_safetensors=True,
-                )
+                print("✓ モデルを読み込みました（標準のattention実装を使用）", file=sys.stderr)
+                print("💡 ヒント: flash-attnをインストールすると、パフォーマンスが向上します", file=sys.stderr)
             
             # モデルを評価モードに設定し、GPUに移動
             self.model = self.model.eval()
