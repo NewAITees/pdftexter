@@ -9,14 +9,15 @@ from typing import Optional, Tuple
 import numpy as np
 import pyautogui as pag
 
-from pdftexter.kindle.window import (
-    find_kindle_window,
-    get_screen_size,
-    get_window_client_rect,
-    setup_kindle_window,
-)
+from pdftexter.kindle.window import get_screen_size, get_window_client_rect, setup_kindle_window
 from pdftexter.utils.file import ensure_directory, join_path
-from pdftexter.utils.gui import get_title_and_direction, select_window_handle, show_error, show_info
+from pdftexter.utils.gui import (
+    _load_page_key,
+    get_title_and_key_dialog,
+    select_window_handle,
+    show_error,
+    show_info,
+)
 from pdftexter.utils.image import (
     convert_rgb_to_bgr,
     find_content_boundaries,
@@ -32,7 +33,6 @@ class KindleScreenshotConfig:
 
     def __init__(
         self,
-        window_title: str = "Kindle for PC",
         page_change_key: str = "right",
         fullscreen_wait: float = 5.0,
         left_margin: int = 1,
@@ -42,13 +42,11 @@ class KindleScreenshotConfig:
         max_retries: int = 3,  # 最後のページ確認のリトライ回数
         diff_threshold: int = 10,
         min_change_ratio: float = 0.01,
-        select_window: bool = False,
     ):
         """
         設定を初期化
 
         Args:
-            window_title: Kindleウィンドウのタイトル
             page_change_key: 次のページへ移動するキー
             fullscreen_wait: フルスクリーン後の待機時間（秒）
             left_margin: 左側マージン（境界検出用）
@@ -58,9 +56,7 @@ class KindleScreenshotConfig:
             max_retries: 最後のページ確認のリトライ回数
             diff_threshold: 画面変化を検出する画素差分の閾値
             min_change_ratio: 変化とみなす画素の最小割合
-            select_window: ウィンドウ選択ダイアログを使用するか
         """
-        self.window_title = window_title
         self.page_change_key = page_change_key
         self.fullscreen_wait = fullscreen_wait
         self.left_margin = left_margin
@@ -70,7 +66,6 @@ class KindleScreenshotConfig:
         self.max_retries = max_retries
         self.diff_threshold = diff_threshold
         self.min_change_ratio = min_change_ratio
-        self.select_window = select_window
 
 
 class KindleScreenshot:
@@ -193,28 +188,24 @@ class KindleScreenshot:
         Returns:
             保存したページ数、エラーの場合はNone
         """
-        # 最初にタイトルとページめくり方向を取得（Kindleウィンドウを触る前に）
+        # ウィンドウ選択ダイアログを表示
+        print("ウィンドウを選択してください...")
+        hwnd = select_window_handle()
+        if hwnd is None:
+            show_error("エラー", "ウィンドウが選択されませんでした")
+            return None
+        print("ウィンドウが選択されました")
+
+        # タイトルとページ送りキーを取得
         print("設定を入力してください...")
-        title, page_direction = get_title_and_direction()
-        self.config.page_change_key = page_direction
+        title, page_key = get_title_and_key_dialog()
+        self.config.page_change_key = page_key
         print(f"タイトル: {title}")
-        print(f"方向: {page_direction}")
+        print(f"ページ送りキー: {page_key}")
 
         # 保存先を ./outputs/{タイトル} に自動設定
         base_save_folder = os.path.join(os.getcwd(), "outputs")
         print(f"保存先: {os.path.join(base_save_folder, title)}")
-
-        # Kindleウィンドウを検出
-        print("Kindleウィンドウを検索中...")
-        if self.config.select_window:
-            hwnd = select_window_handle()
-        else:
-            hwnd = find_kindle_window(self.config.window_title)
-        if hwnd is None:
-            message = "ウィンドウが選択されませんでした" if self.config.select_window else "Kindleが見つかりません"
-            show_error("エラー", message)
-            return None
-        print("Kindleウィンドウが見つかりました")
 
         # ウィンドウを前面に表示
         setup_kindle_window(hwnd)
@@ -256,37 +247,33 @@ class KindleScreenshot:
 
         return total_pages
 
-    def run_with_params(self, title: str, page_direction: str) -> Optional[int]:
+    def run_with_params(self, title: str) -> Optional[int]:
         """
-        パラメータ指定で実行（GUIをスキップ）
+        パラメータ指定で実行（タイトル入力GUIをスキップ）
 
         Args:
             title: 本のタイトル
-            page_direction: ページめくり方向（"left" または "right"）
 
         Returns:
             保存したページ数、エラーの場合はNone
         """
-        # ページめくり方向を設定
-        self.config.page_change_key = page_direction
+        # 保存されたページ送りキーを読み込み
+        page_key = _load_page_key()
+        self.config.page_change_key = page_key
         print(f"タイトル: {title}")
-        print(f"方向: {page_direction}")
+        print(f"ページ送りキー: {page_key}（設定ファイルから）")
 
         # 保存先を ./outputs/{タイトル} に自動設定
         base_save_folder = os.path.join(os.getcwd(), "outputs")
         print(f"保存先: {os.path.join(base_save_folder, title)}")
 
-        # Kindleウィンドウを検出
-        print("Kindleウィンドウを検索中...")
-        if self.config.select_window:
-            hwnd = select_window_handle()
-        else:
-            hwnd = find_kindle_window(self.config.window_title)
+        # ウィンドウ選択ダイアログを表示
+        print("ウィンドウを選択してください...")
+        hwnd = select_window_handle()
         if hwnd is None:
-            message = "ウィンドウが選択されませんでした" if self.config.select_window else "Kindleが見つかりません"
-            show_error("エラー", message)
+            show_error("エラー", "ウィンドウが選択されませんでした")
             return None
-        print("Kindleウィンドウが見つかりました")
+        print("ウィンドウが選択されました")
 
         # ウィンドウを前面に表示
         setup_kindle_window(hwnd)
@@ -330,41 +317,18 @@ def main() -> None:
     """メイン関数"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Kindleスクリーンショット撮影ツール")
-    parser.add_argument("-t", "--title", type=str, help="本のタイトル（指定するとGUIをスキップ）")
-    parser.add_argument(
-        "-d",
-        "--direction",
-        type=str,
-        choices=["left", "right"],
-        default="right",
-        help="ページめくり方向: left（←）または right（→）",
-    )
-    parser.add_argument(
-        "--window-title", type=str, default="Kindle for PC", help="スクリーンショット対象のウィンドウタイトル"
-    )
-    parser.add_argument("--select-window", action="store_true", help="ウィンドウ選択ダイアログを表示する")
+    parser = argparse.ArgumentParser(description="スクリーンショット撮影ツール")
+    parser.add_argument("-t", "--title", type=str, help="本のタイトル（指定するとタイトル入力GUIをスキップ）")
 
     args = parser.parse_args()
 
+    screenshot = KindleScreenshot()
+
     # コマンドライン引数でタイトルが指定された場合
     if args.title:
-        print(f"タイトル: {args.title}")
-        print(f"方向: {args.direction}")
-        config = KindleScreenshotConfig(
-            window_title=args.window_title,
-            page_change_key=args.direction,
-            select_window=args.select_window,
-        )
-        screenshot = KindleScreenshot(config)
-        screenshot.run_with_params(args.title, args.direction)
+        screenshot.run_with_params(args.title)
     else:
         # GUIモード
-        config = KindleScreenshotConfig(
-            window_title=args.window_title,
-            select_window=args.select_window,
-        )
-        screenshot = KindleScreenshot(config)
         screenshot.run()
 
 

@@ -11,49 +11,48 @@ from typing import Optional
 
 from pdftexter.kindle.window import list_windows
 
-_KINDLE_STATE_FILENAME = "kindle_state.json"
+# 設定ファイルのパス
+_SETTINGS_FILENAME = "screenshot_settings.json"
+
+# 利用可能なページ送りキー
+PAGE_KEYS = [
+    ("right", "→（右矢印）"),
+    ("left", "←（左矢印）"),
+    ("pagedown", "Page Down"),
+    ("pageup", "Page Up"),
+    ("space", "スペース"),
+    ("down", "↓（下矢印）"),
+    ("up", "↑（上矢印）"),
+]
 
 
-def _get_kindle_state_path() -> Path:
-    """
-    Kindle設定の保存パスを取得
-
-    Returns:
-        保存先パス
-    """
-    return Path(__file__).resolve().parents[3] / "config" / _KINDLE_STATE_FILENAME
+def _get_settings_path() -> Path:
+    """設定ファイルのパスを取得"""
+    return Path(__file__).resolve().parents[3] / "config" / _SETTINGS_FILENAME
 
 
-def _load_kindle_direction() -> Optional[str]:
-    """
-    保存済みのページめくり方向を取得
-
-    Returns:
-        "left" または "right"、未設定ならNone
-    """
-    path = _get_kindle_state_path()
+def _load_page_key() -> str:
+    """保存済みのページ送りキーを取得（デフォルト: right）"""
+    path = _get_settings_path()
     if not path.exists():
-        return None
+        return "right"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+        key = data.get("page_key", "right")
+        # 有効なキーか確認
+        valid_keys = [k for k, _ in PAGE_KEYS]
+        return key if key in valid_keys else "right"
     except (OSError, json.JSONDecodeError):
-        return None
-    direction = data.get("direction")
-    return direction if direction in {"left", "right"} else None
+        return "right"
 
 
-def _save_kindle_direction(direction: str) -> None:
-    """
-    ページめくり方向を保存
-
-    Args:
-        direction: "left" または "right"
-    """
-    path = _get_kindle_state_path()
+def _save_page_key(key: str) -> None:
+    """ページ送りキーを保存"""
+    path = _get_settings_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"direction": direction}
-        path.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
+        payload = {"page_key": key}
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     except OSError:
         pass
 
@@ -135,156 +134,152 @@ def show_warning(title: str, message: str) -> None:
     messagebox.showwarning(title, message)
 
 
-def get_title_and_direction(default_prefix: str = "") -> tuple[str, str]:
+def get_title_and_key_dialog(default_prefix: str = "") -> tuple[str, str]:
     """
-    タイトルとページめくり方向を同時に取得（GUIダイアログ）
+    タイトルとページ送りキーを取得（GUIダイアログ）
 
     Args:
         default_prefix: デフォルトのプレフィックス
 
     Returns:
-        (タイトル, ページめくり方向) のタプル
+        (タイトル, ページ送りキー) のタプル
     """
-    # Tkinterウィンドウを作成
     root = tk.Tk()
-
-    # メインウィンドウは最小化せずに、ダイアログとして使用
-    root.title("Kindleスクリーンショット設定")
+    root.title("スクリーンショット設定")
 
     # 結果を保存する変数
     title_var = tk.StringVar(value="")
-    saved_direction = _load_kindle_direction()
-    direction_var = tk.StringVar(value=saved_direction or "right")
-    result = {"title": "", "direction": "right"}
+    saved_key = _load_page_key()
+    key_var = tk.StringVar(value=saved_key)
+    result = {"title": "", "key": saved_key}
 
-    # rootをそのまま使用（Toplevelではなく）
     dialog = root
-    dialog.title("Kindleスクリーンショット設定")
 
-    # ウィンドウサイズと位置（大きく見やすく）
-    width = 600
-    height = 400
+    # ウィンドウサイズと位置
+    width = 500
+    height = 350
 
-    # 画面の中央に配置
     dialog.update_idletasks()
     screen_width = dialog.winfo_screenwidth()
     screen_height = dialog.winfo_screenheight()
     x = (screen_width // 2) - (width // 2)
     y = (screen_height // 2) - (height // 2)
 
-    # ジオメトリを設定
     dialog.geometry(f"{width}x{height}+{x}+{y}")
     dialog.resizable(False, False)
 
-    # 最前面に表示（重要！）
     dialog.attributes("-topmost", True)
     dialog.lift()
     dialog.focus_force()
 
     # タイトル入力セクション
-    title_frame = tk.Frame(dialog, pady=20)
+    title_frame = tk.Frame(dialog, pady=15)
     title_frame.pack(fill="x", padx=30)
 
-    title_label = tk.Label(title_frame, text="📚 本のタイトルを入力してください：", font=("", 14, "bold"))
-    title_label.pack(anchor="w", pady=(0, 10))
+    title_label = tk.Label(title_frame, text="本のタイトルを入力してください：", font=("", 12, "bold"))
+    title_label.pack(anchor="w", pady=(0, 5))
 
-    title_entry = tk.Entry(title_frame, textvariable=title_var, font=("", 12), width=50)
-    title_entry.pack(fill="x", pady=5, ipady=5)
-    title_entry.focus()  # フォーカスを設定
+    title_entry = tk.Entry(title_frame, textvariable=title_var, font=("", 11), width=50)
+    title_entry.pack(fill="x", pady=5, ipady=3)
+    title_entry.focus()
 
     hint_label = tk.Label(title_frame, text="※空白の場合は現在時刻が使用されます", font=("", 9), fg="gray")
-    hint_label.pack(anchor="w", pady=(5, 0))
+    hint_label.pack(anchor="w")
 
     # 区切り線
     separator = tk.Frame(dialog, height=2, bg="lightgray")
-    separator.pack(fill="x", padx=30, pady=15)
+    separator.pack(fill="x", padx=30, pady=10)
 
-    # ページめくり方向セクション
-    direction_frame = tk.Frame(dialog)
-    direction_frame.pack(fill="x", padx=30)
+    # ページ送りキー選択セクション
+    key_frame = tk.Frame(dialog)
+    key_frame.pack(fill="x", padx=30)
 
-    direction_label = tk.Label(direction_frame, text="📖 ページめくりの方向を選択：", font=("", 14, "bold"))
-    direction_label.pack(anchor="w", pady=(0, 15))
+    key_label = tk.Label(key_frame, text="ページ送りキーを選択：", font=("", 12, "bold"))
+    key_label.pack(anchor="w", pady=(0, 5))
 
-    # ラジオボタン
-    right_radio = tk.Radiobutton(
-        direction_frame, text="右方向（→）  ※通常の本", variable=direction_var, value="right", font=("", 12)
-    )
-    right_radio.pack(anchor="w", pady=5)
+    # ドロップダウン（Combobox風）
+    key_options = [label for _, label in PAGE_KEYS]
+    key_values = [key for key, _ in PAGE_KEYS]
 
-    left_radio = tk.Radiobutton(
-        direction_frame,
-        text="左方向（←）  ※縦書きの本など",
-        variable=direction_var,
-        value="left",
-        font=("", 12),
-    )
-    left_radio.pack(anchor="w", pady=5)
+    # 現在の値のインデックスを取得
+    try:
+        current_idx = key_values.index(saved_key)
+    except ValueError:
+        current_idx = 0
+
+    # OptionMenuを使用
+    selected_label = tk.StringVar(value=key_options[current_idx])
+
+    def on_key_change(*_: object) -> None:
+        idx = key_options.index(selected_label.get())
+        key_var.set(key_values[idx])
+
+    key_menu = tk.OptionMenu(key_frame, selected_label, *key_options, command=on_key_change)
+    key_menu.config(font=("", 11), width=20)
+    key_menu.pack(anchor="w", pady=5)
+
+    hint_key_label = tk.Label(key_frame, text="※選択したキーは次回以降も記憶されます", font=("", 9), fg="gray")
+    hint_key_label.pack(anchor="w")
 
     # OKボタン
-    def on_ok():
+    def on_ok() -> None:
         title = title_var.get().strip()
         if not title:
-            # 空白の場合は現在時刻を使用
             default_title = str(datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
             if default_prefix:
                 default_title = f"{default_prefix}_{default_title}"
             result["title"] = default_title
         else:
             result["title"] = title
-        result["direction"] = direction_var.get()
-        _save_kindle_direction(result["direction"])
-        dialog.quit()  # mainloop()を終了
+        result["key"] = key_var.get()
+        _save_page_key(result["key"])
+        dialog.quit()
 
     button_frame = tk.Frame(dialog)
-    button_frame.pack(pady=25)
+    button_frame.pack(pady=20)
 
     ok_button = tk.Button(
         button_frame,
         text="OK",
         command=on_ok,
         width=15,
-        font=("", 12, "bold"),
+        font=("", 11, "bold"),
         bg="#4CAF50",
         fg="white",
         relief="raised",
-        padx=20,
-        pady=10,
+        padx=15,
+        pady=8,
     )
     ok_button.pack()
 
-    # Enterキーでも決定できるように
     dialog.bind("<Return>", lambda e: on_ok())
-
-    # ダイアログを最前面に表示
     dialog.grab_set()
 
-    # メインループを開始
     try:
         dialog.mainloop()
     except Exception:
         pass
     finally:
-        # ウィンドウを破棄
         try:
             dialog.destroy()
         except Exception:
             pass
 
-    return result["title"], result["direction"]
+    return result["title"], result["key"]
 
 
-def get_page_direction() -> str:
+def get_title_dialog(default_prefix: str = "") -> str:
     """
-    ページめくり方向を選択（GUIダイアログ）
+    タイトルのみを取得（GUIダイアログ）- 後方互換用
 
-    注意: この関数は非推奨です。get_title_and_direction()を使用してください。
+    Args:
+        default_prefix: デフォルトのプレフィックス
 
     Returns:
-        選択されたキー（"right" または "left"）
+        ユーザーが入力したタイトル（空白の場合は現在時刻）
     """
-    _, direction = get_title_and_direction()
-    return direction
+    title, _ = get_title_and_key_dialog(default_prefix)
+    return title
 
 
 def select_window_handle() -> Optional[int]:

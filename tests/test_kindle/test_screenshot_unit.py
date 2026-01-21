@@ -139,12 +139,11 @@ class TestKindleScreenshotUnit:
                                 assert "001" in saved_path or "test" in saved_path
 
     def test_run_with_params_uses_window_selection(self):
-        """選択ダイアログが有効な場合にウィンドウ選択が優先されることを確認"""
-        config = KindleScreenshotConfig(select_window=True)
-        screenshot = KindleScreenshot(config)
+        """run_with_paramsがウィンドウ選択ダイアログを使用することを確認"""
+        screenshot = KindleScreenshot()
 
-        with patch("pdftexter.kindle.screenshot.select_window_handle") as mock_select:
-            with patch("pdftexter.kindle.screenshot.find_kindle_window") as mock_find:
+        with patch("pdftexter.kindle.screenshot._load_page_key") as mock_load_key:
+            with patch("pdftexter.kindle.screenshot.select_window_handle") as mock_select:
                 with patch("pdftexter.kindle.screenshot.setup_kindle_window") as mock_setup:
                     with patch("pdftexter.kindle.screenshot.get_window_client_rect") as mock_rect:
                         with patch("pdftexter.kindle.screenshot.grab_screen") as mock_grab:
@@ -161,6 +160,7 @@ class TestKindleScreenshotUnit:
                                                 "capture_pages",
                                                 return_value=1,
                                             ) as mock_capture:
+                                                mock_load_key.return_value = "right"
                                                 mock_select.return_value = 123
                                                 mock_rect.return_value = (0, 0, 100, 100)
                                                 mock_grab.return_value = np.zeros(
@@ -169,10 +169,9 @@ class TestKindleScreenshotUnit:
                                                 mock_boundaries.return_value = (0, 100)
                                                 mock_size.return_value = (1920, 1080)
 
-                                                result = screenshot.run_with_params("test", "right")
+                                                result = screenshot.run_with_params("test")
 
                                                 assert result == 1
                                                 assert mock_select.called
-                                                assert not mock_find.called
                                                 assert mock_setup.called
                                                 assert mock_capture.called
