@@ -19,6 +19,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+deepseek-ocr-client-main/*
 
 # Virtual environments
 venv/
@@ -71,3 +72,6 @@ DeepSeek-OCR/
 
 # Claude settings (local configuration)
 .claude/settings.local.json
+
+# Kindle screenshot state (local configuration)
+config/kindle_state.json

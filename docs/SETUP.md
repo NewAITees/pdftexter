@@ -198,4 +198,3 @@ uv pip list | findstr -i "torch transformers tokenizers einops addict easydict"
 ## 次のステップ
 
 セットアップが完了したら、[README.md](../README.md) の「使用方法」セクションを参照して、実際にPDF変換を試してみてください。
-

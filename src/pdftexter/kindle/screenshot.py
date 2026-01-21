@@ -4,20 +4,24 @@ Kindleスクリーンショット撮影モジュール
 
 import os
 import time
-from pathlib import Path
 from typing import Optional, Tuple
 
 import numpy as np
 import pyautogui as pag
 
-from pdftexter.kindle.window import find_kindle_window, get_screen_size, setup_kindle_window
+from pdftexter.kindle.window import (
+    find_kindle_window,
+    get_screen_size,
+    get_window_client_rect,
+    setup_kindle_window,
+)
 from pdftexter.utils.file import ensure_directory, join_path
-from pdftexter.utils.gui import get_title_and_direction, show_error, show_info
+from pdftexter.utils.gui import get_title_and_direction, select_window_handle, show_error, show_info
 from pdftexter.utils.image import (
     convert_rgb_to_bgr,
     find_content_boundaries,
     grab_screen,
-    images_equal,
+    images_changed,
     save_image,
     trim_image,
 )
@@ -36,6 +40,9 @@ class KindleScreenshotConfig:
         wait_seconds: float = 0.15,
         timeout_seconds: float = 10.0,  # 10秒に延長（最後のページをより確実に検知）
         max_retries: int = 3,  # 最後のページ確認のリトライ回数
+        diff_threshold: int = 10,
+        min_change_ratio: float = 0.01,
+        select_window: bool = False,
     ):
         """
         設定を初期化
@@ -49,6 +56,9 @@ class KindleScreenshotConfig:
             wait_seconds: キー押下後の待機時間（秒）
             timeout_seconds: ページめくりのタイムアウト時間（秒）
             max_retries: 最後のページ確認のリトライ回数
+            diff_threshold: 画面変化を検出する画素差分の閾値
+            min_change_ratio: 変化とみなす画素の最小割合
+            select_window: ウィンドウ選択ダイアログを使用するか
         """
         self.window_title = window_title
         self.page_change_key = page_change_key
@@ -58,31 +68,35 @@ class KindleScreenshotConfig:
         self.wait_seconds = wait_seconds
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
+        self.diff_threshold = diff_threshold
+        self.min_change_ratio = min_change_ratio
+        self.select_window = select_window
 
 
 class KindleScreenshot:
     """Kindleスクリーンショット撮影クラス"""
-    
+
     def __init__(self, config: Optional[KindleScreenshotConfig] = None):
         """
         初期化
-        
+
         Args:
             config: 設定オブジェクト（Noneの場合はデフォルト設定を使用）
         """
         self.config = config or KindleScreenshotConfig()
         self.base_save_folder: Optional[str] = None
-    
+
     def capture_pages(
         self,
         left: int,
         right: int,
         title: str,
         save_folder: str,
+        bbox: Optional[Tuple[int, int, int, int]] = None,
     ) -> int:
         """
         ページを自動的にキャプチャして保存
-        
+
         このメソッドは以下の処理を自動的に実行します：
         1. 画面をキャプチャ
         2. 余白を自動トリミング（left, rightで指定された境界に基づく）
@@ -90,48 +104,53 @@ class KindleScreenshot:
         4. 自動的に次のページへ（pag.pressでキー操作）
         5. ページが変わるまで待機
         6. 最終ページに到達するまで繰り返し
-        
+
         Args:
             left: 左端の位置（トリミング境界）
             right: 右端の位置（トリミング境界）
             title: 保存フォルダ名
             save_folder: 保存先の親フォルダ
-            
+            bbox: キャプチャ範囲 (left, top, right, bottom)
+
         Returns:
             保存したページ数
         """
-        screen_width, screen_height = get_screen_size()
-        
         # ページめくりを検知するための比較用画像
-        # トリミング後の画像の高さは画面の高さと同じ
-        old = np.zeros((screen_height, right - left, 3), np.uint8)
+        old: Optional[np.ndarray] = None
         page = 1
-        
+
         # 保存先フォルダの設定
         current_dir = os.getcwd()
         save_path = join_path(save_folder, title)
         ensure_directory(save_path)
         os.chdir(save_path)
-        
+
         try:
             while True:
                 filename = f"{page:03d}.png"
                 start_time = time.perf_counter()
-                
+
                 # ページめくりが完了するまで待機
                 retry_count = 0
                 while True:
                     time.sleep(self.config.wait_seconds)
 
                     # 画面をキャプチャ
-                    screen = grab_screen()
+                    screen = grab_screen(bbox=bbox)
                     screen_array = convert_rgb_to_bgr(screen)
 
                     # コンテンツ境界に基づいて自動トリミング（余白を削除）
                     trimmed = trim_image(screen_array, left, right)
 
                     # ページめくりが完了したか確認
-                    if not images_equal(old, trimmed):
+                    if old is None:
+                        break
+                    if images_changed(
+                        old,
+                        trimmed,
+                        diff_threshold=self.config.diff_threshold,
+                        min_change_ratio=self.config.min_change_ratio,
+                    ):
                         break
 
                     # タイムアウト処理（最終ページなどで変化がなかった場合）
@@ -148,25 +167,25 @@ class KindleScreenshot:
                             print(f"  最終ページに到達しました（{self.config.timeout_seconds}秒タイムアウト）")
                             os.chdir(current_dir)
                             return page - 1  # 最後に成功したページ数を返す
-                
+
                 # 画像保存
                 if save_image(trimmed, filename):
                     old = trimmed
                     elapsed = time.perf_counter() - start_time
-                    print(f'Page: {page}, {trimmed.shape}, {elapsed:.2f} sec')
+                    print(f"Page: {page}, {trimmed.shape}, {elapsed:.2f} sec")
                     page += 1
-                    
+
                     # 自動的に次ページへ（キーを押してすぐに離す）
                     # ページ送りは完全に自動化されており、ユーザーの操作は不要
                     pag.press(self.config.page_change_key)
                 else:
-                    print(f'Failed to save page {page}')
+                    print(f"Failed to save page {page}")
                     break
         finally:
             os.chdir(current_dir)
-        
+
         return page - 1
-    
+
     def run(self) -> Optional[int]:
         """
         メイン処理を実行
@@ -187,9 +206,13 @@ class KindleScreenshot:
 
         # Kindleウィンドウを検出
         print("Kindleウィンドウを検索中...")
-        hwnd = find_kindle_window(self.config.window_title)
+        if self.config.select_window:
+            hwnd = select_window_handle()
+        else:
+            hwnd = find_kindle_window(self.config.window_title)
         if hwnd is None:
-            show_error("エラー", "Kindleが見つかりません")
+            message = "ウィンドウが選択されませんでした" if self.config.select_window else "Kindleが見つかりません"
+            show_error("エラー", message)
             return None
         print("Kindleウィンドウが見つかりました")
 
@@ -202,29 +225,33 @@ class KindleScreenshot:
         pag.moveTo(screen_width - 200, screen_height - 1)
         print(f"準備中... {self.config.fullscreen_wait}秒待機")
         time.sleep(self.config.fullscreen_wait)
-        
+
         # 初期画像を取得してコンテンツ境界を自動検出
         # これにより、余白を自動的に削除してコンテンツ部分のみを切り出す
-        initial_image = grab_screen()
+        try:
+            bbox = get_window_client_rect(hwnd)
+        except RuntimeError as exc:
+            show_error("エラー", str(exc))
+            return None
+
+        initial_image = grab_screen(bbox=bbox)
         initial_array = convert_rgb_to_bgr(initial_image)
         left, right = find_content_boundaries(
             initial_array,
             self.config.left_margin,
             self.config.right_margin,
         )
-        
+
         # 自動ページめくりとキャプチャを実行
         # ページは自動的にめくられ、トリミングされた画像が保存されます
-        total_pages = self.capture_pages(left, right, title, base_save_folder)
+        total_pages = self.capture_pages(left, right, title, base_save_folder, bbox=bbox)
 
         # 完了メッセージを表示
         if total_pages is not None and total_pages > 0:
             save_path = os.path.join(base_save_folder, title)
             show_info(
                 "完了",
-                f"スクリーンショットの撮影が終了しました。\n"
-                f"合計 {total_pages} ページを保存しました。\n\n"
-                f"保存先: {save_path}"
+                f"スクリーンショットの撮影が終了しました。\n" f"合計 {total_pages} ページを保存しました。\n\n" f"保存先: {save_path}",
             )
 
         return total_pages
@@ -251,9 +278,13 @@ class KindleScreenshot:
 
         # Kindleウィンドウを検出
         print("Kindleウィンドウを検索中...")
-        hwnd = find_kindle_window(self.config.window_title)
+        if self.config.select_window:
+            hwnd = select_window_handle()
+        else:
+            hwnd = find_kindle_window(self.config.window_title)
         if hwnd is None:
-            show_error("エラー", "Kindleが見つかりません")
+            message = "ウィンドウが選択されませんでした" if self.config.select_window else "Kindleが見つかりません"
+            show_error("エラー", message)
             return None
         print("Kindleウィンドウが見つかりました")
 
@@ -267,7 +298,13 @@ class KindleScreenshot:
         time.sleep(self.config.fullscreen_wait)
 
         # 初期画像を取得してコンテンツ境界を自動検出
-        initial_image = grab_screen()
+        try:
+            bbox = get_window_client_rect(hwnd)
+        except RuntimeError as exc:
+            show_error("エラー", str(exc))
+            return None
+
+        initial_image = grab_screen(bbox=bbox)
         initial_array = convert_rgb_to_bgr(initial_image)
         left, right = find_content_boundaries(
             initial_array,
@@ -276,16 +313,14 @@ class KindleScreenshot:
         )
 
         # 自動ページめくりとキャプチャを実行
-        total_pages = self.capture_pages(left, right, title, base_save_folder)
+        total_pages = self.capture_pages(left, right, title, base_save_folder, bbox=bbox)
 
         # 完了メッセージを表示
         if total_pages is not None and total_pages > 0:
             save_path = os.path.join(base_save_folder, title)
             show_info(
                 "完了",
-                f"スクリーンショットの撮影が終了しました。\n"
-                f"合計 {total_pages} ページを保存しました。\n\n"
-                f"保存先: {save_path}"
+                f"スクリーンショットの撮影が終了しました。\n" f"合計 {total_pages} ページを保存しました。\n\n" f"保存先: {save_path}",
             )
 
         return total_pages
@@ -295,21 +330,20 @@ def main() -> None:
     """メイン関数"""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Kindleスクリーンショット撮影ツール"
-    )
+    parser = argparse.ArgumentParser(description="Kindleスクリーンショット撮影ツール")
+    parser.add_argument("-t", "--title", type=str, help="本のタイトル（指定するとGUIをスキップ）")
     parser.add_argument(
-        "-t", "--title",
-        type=str,
-        help="本のタイトル（指定するとGUIをスキップ）"
-    )
-    parser.add_argument(
-        "-d", "--direction",
+        "-d",
+        "--direction",
         type=str,
         choices=["left", "right"],
         default="right",
-        help="ページめくり方向: left（←）または right（→）"
+        help="ページめくり方向: left（←）または right（→）",
     )
+    parser.add_argument(
+        "--window-title", type=str, default="Kindle for PC", help="スクリーンショット対象のウィンドウタイトル"
+    )
+    parser.add_argument("--select-window", action="store_true", help="ウィンドウ選択ダイアログを表示する")
 
     args = parser.parse_args()
 
@@ -317,15 +351,22 @@ def main() -> None:
     if args.title:
         print(f"タイトル: {args.title}")
         print(f"方向: {args.direction}")
-        config = KindleScreenshotConfig(page_change_key=args.direction)
+        config = KindleScreenshotConfig(
+            window_title=args.window_title,
+            page_change_key=args.direction,
+            select_window=args.select_window,
+        )
         screenshot = KindleScreenshot(config)
         screenshot.run_with_params(args.title, args.direction)
     else:
         # GUIモード
-        screenshot = KindleScreenshot()
+        config = KindleScreenshotConfig(
+            window_title=args.window_title,
+            select_window=args.select_window,
+        )
+        screenshot = KindleScreenshot(config)
         screenshot.run()
 
 
 if __name__ == "__main__":
     main()
-
