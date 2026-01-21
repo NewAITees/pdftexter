@@ -155,23 +155,24 @@ class TestKindleScreenshotUnit:
                                 ) as mock_size:
                                     with patch("pyautogui.moveTo"):
                                         with patch("time.sleep"):
-                                            with patch.object(
-                                                KindleScreenshot,
-                                                "capture_pages",
-                                                return_value=1,
-                                            ) as mock_capture:
-                                                mock_load_key.return_value = "right"
-                                                mock_select.return_value = 123
-                                                mock_rect.return_value = (0, 0, 100, 100)
-                                                mock_grab.return_value = np.zeros(
-                                                    (100, 100, 3), dtype=np.uint8
-                                                )
-                                                mock_boundaries.return_value = (0, 100)
-                                                mock_size.return_value = (1920, 1080)
+                                            with patch("pdftexter.kindle.screenshot.show_info"):
+                                                with patch.object(
+                                                    KindleScreenshot,
+                                                    "capture_pages",
+                                                    return_value=1,
+                                                ) as mock_capture:
+                                                    mock_load_key.return_value = "right"
+                                                    mock_select.return_value = 123
+                                                    mock_rect.return_value = (0, 0, 100, 100)
+                                                    mock_grab.return_value = np.zeros(
+                                                        (100, 100, 3), dtype=np.uint8
+                                                    )
+                                                    mock_boundaries.return_value = (0, 100)
+                                                    mock_size.return_value = (1920, 1080)
 
-                                                result = screenshot.run_with_params("test")
+                                                    result = screenshot.run_with_params("test")
 
-                                                assert result == 1
-                                                assert mock_select.called
-                                                assert mock_setup.called
-                                                assert mock_capture.called
+                                                    assert result == 1
+                                                    assert mock_select.called
+                                                    assert mock_setup.called
+                                                    assert mock_capture.called
