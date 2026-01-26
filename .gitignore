@@ -49,6 +49,7 @@ output/
 *.jpg
 *.jpeg
 *.md
+!AGENTS.md
 *.mmd
 
 # Logs

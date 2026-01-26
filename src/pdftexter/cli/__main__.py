@@ -26,8 +26,8 @@ def kindle_to_pdf_cli(args: argparse.Namespace) -> int:
     # 現在はGUIを使用しているため、CLI版は未実装
     print("Kindle → PDF変換は現在GUI版のみ対応しています。")
     print("以下のコマンドでGUIを起動してください:")
-    print("  poetry run python scripts/kindle_screenshot.py")
-    print("  poetry run python scripts/kindle_pdf_convert.py")
+    print("  uv run python scripts/kindle_screenshot.py")
+    print("  uv run python scripts/kindle_pdf_convert.py")
     return 0
 
 
@@ -76,7 +76,7 @@ def full_workflow_cli(args: argparse.Namespace) -> int:
     print("\n[ステップ1] Kindleスクリーンショット撮影")
     print("注意: このステップは現在GUI版のみ対応しています。")
     print("以下のコマンドでGUIを起動してください:")
-    print("  poetry run python scripts/kindle_screenshot.py")
+    print("  uv run python scripts/kindle_screenshot.py")
 
     # ユーザーに画像フォルダの入力を求める
     image_folder = args.image_folder
