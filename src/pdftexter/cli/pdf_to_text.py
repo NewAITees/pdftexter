@@ -5,10 +5,9 @@ PDF→Text変換CLIモジュール
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional
 
 from pdftexter.ocr.config import load_config
-from pdftexter.ocr.deepseek import DeepSeekOCR
+from pdftexter.ocr.factory import create_ocr_engine
 
 
 def progress_callback(current: int, total: int) -> None:
@@ -28,13 +27,11 @@ def progress_callback(current: int, total: int) -> None:
 def main() -> int:
     """
     メイン関数
-    
+
     Returns:
         終了コード（0: 成功、1: エラー）
     """
-    parser = argparse.ArgumentParser(
-        description="PDFファイルをOCR処理してテキスト（Markdown）に変換"
-    )
+    parser = argparse.ArgumentParser(description="PDFファイルをOCR処理してテキスト（Markdown）に変換")
     parser.add_argument(
         "input",
         type=str,
@@ -89,52 +86,55 @@ def main() -> int:
         action="store_true",
         help="中断した処理を再開する（進捗ファイルから続きから開始）",
     )
-    
+
     args = parser.parse_args()
-    
+
     # 入力ファイルの検証
     input_path = Path(args.input)
     if not input_path.exists():
         print(f"エラー: 入力ファイルが見つかりません: {args.input}", file=sys.stderr)
         return 1
-    
+
     if not input_path.suffix.lower() == ".pdf":
         print(f"エラー: 入力ファイルがPDF形式ではありません: {args.input}", file=sys.stderr)
         return 1
-    
+
     # 出力ファイルのパスを決定
     if args.output:
         output_path = Path(args.output)
     else:
         output_path = input_path.with_suffix(".md")
-    
+
     # 設定の読み込み
     try:
         config = load_config(args.config) if args.config else load_config()
         # 出力形式を設定に反映
-        config.deepseek_ocr.output_format = args.format
+        if config.ocr_backend == "ollama":
+            config.ollama_ocr.output_format = args.format
+        else:
+            config.deepseek_ocr.output_format = args.format
     except Exception as e:
         print(f"エラー: 設定ファイルの読み込みに失敗しました: {e}", file=sys.stderr)
         return 1
-    
-    # DeepSeek-OCRの初期化（セットアップ検証を実行）
+
+    # OCRエンジンの初期化（セットアップ検証を実行）
     try:
-        ocr = DeepSeekOCR(config, verify_setup=not args.skip_verify)
+        ocr = create_ocr_engine(config, verify_setup=not args.skip_verify)
     except RuntimeError as e:
         print(f"エラー: {e}", file=sys.stderr)
         print("\nヒント: --skip-verify オプションでセットアップ検証をスキップできます", file=sys.stderr)
         return 1
     except Exception as e:
-        print(f"エラー: DeepSeek-OCRの初期化に失敗しました: {e}", file=sys.stderr)
+        print(f"エラー: OCRエンジンの初期化に失敗しました: {e}", file=sys.stderr)
         return 1
-    
+
     # OCR処理を実行
     try:
         print(f"PDFファイルを処理中: {input_path}")
         print(f"出力先: {output_path}")
-        
+
         callback = None if args.no_progress else progress_callback
-        
+
         output_file = ocr.process_pdf_to_file(
             pdf_path=str(input_path),
             output_file=str(output_path),
@@ -144,17 +144,17 @@ def main() -> int:
             keep_temp_images=args.keep_temp_images,
             resume=args.resume,
         )
-        
+
         print(f"完了: {output_file}")
         return 0
-        
+
     except Exception as e:
         print(f"エラー: OCR処理に失敗しました: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         return 1
 
 
 if __name__ == "__main__":
     sys.exit(main())
-
