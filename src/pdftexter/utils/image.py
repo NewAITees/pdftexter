@@ -13,21 +13,24 @@ def find_content_boundaries(
     img: np.ndarray,
     left_margin: int = 1,
     right_margin: int = 1,
+    color_diff_threshold: int = 30,
 ) -> Tuple[int, int]:
     """
-    画像内のコンテンツ境界を自動検出（簡易的な方法）
+    画像内のコンテンツ境界を自動検出
 
     Kindleの余白とコンテンツの色の境界を自動的に検出します。
     これにより、余白を削除してコンテンツ部分のみを切り出すことができます。
 
     検出方法：
-    ページ上の特定のピクセル（20行目）で、左上のピクセルと異なる色を探します。
-    左から右へ、右から左へと検索して、コンテンツの境界を特定します。
+    複数の行をサンプリングし、左端・右端の余白色と大きく異なる色が
+    現れる位置を境界として検出します。複数行の結果から最も安全な
+    （文字が切れない）境界を採用します。
 
     Args:
         img: 画像データ（NumPy配列、BGR形式）
-        left_margin: 左側マージン（境界検出用）
-        right_margin: 右側マージン（境界検出用）
+        left_margin: 左側マージン（境界検出の開始位置）
+        right_margin: 右側マージン（境界検出の終了位置）
+        color_diff_threshold: 色差の閾値（RGB合計値、デフォルト30）
 
     Returns:
         (左端の位置, 右端の位置)のタプル
@@ -36,42 +39,61 @@ def find_content_boundaries(
     Raises:
         ValueError: 画像の高さが不足している場合
     """
-    # 画像の高さをチェック（20行目にアクセスするため、最低21行必要）
-    min_height = 21
-    if img.shape[0] < min_height:
+    height, width = img.shape[:2]
+
+    if left_margin < 0 or right_margin < 0:
+        raise ValueError("left_margin/right_margin must be non-negative")
+    if width <= 0:
+        raise ValueError("画像の幅が不正です")
+    if left_margin >= width or right_margin >= width:
+        raise ValueError("left_margin/right_marginが画像幅以上です")
+    if left_margin >= width - right_margin:
+        raise ValueError("left_margin/right_marginの合計が画像幅以上です")
+
+    # 画像の高さをチェック（サンプリングに最低限必要）
+    min_height = 10
+    if height < min_height:
         raise ValueError(
-            f"画像の高さが不足しています（{img.shape[0]}px < {min_height}px）。" f"境界検出には最低{min_height}pxの高さが必要です。"
+            f"画像の高さが不足しています（{height}px < {min_height}px）。" f"境界検出には最低{min_height}pxの高さが必要です。"
         )
 
-    # 比較に使用する行インデックス（20行目を使用）
-    row_idx = 20
+    # 複数行をサンプリング（画像高さの20%, 40%, 60%, 80%）
+    sample_ratios = [0.2, 0.4, 0.6, 0.8]
+    sample_indices = [int(height * r) for r in sample_ratios]
 
-    def compare_pixels(img: np.ndarray, rng: range, row_idx: int) -> Optional[int]:
-        """
-        ピクセルの色を比較して境界を検出
+    left_candidates: list[int] = []
+    right_candidates: list[int] = []
 
-        Args:
-            img: 画像データ
-            rng: 検索範囲
-            row_idx: 比較に使用する行インデックス
+    for row_idx in sample_indices:
+        row = img[row_idx]
 
-        Returns:
-            境界位置、見つからない場合はNone
-        """
-        for i in rng:
-            # ページ上の特定のピクセル（例：20行目）で、左上のピクセルと異なる色を探す
-            if np.all(img[row_idx][i] != img[row_idx - 1][0]):
-                return i
-        return None
+        # 左端の色（余白色）を取得
+        left_margin_color = row[left_margin].astype(np.int32)
+        # 右端の色（余白色）を取得
+        right_margin_color = row[width - right_margin - 1].astype(np.int32)
 
-    left = compare_pixels(img, range(left_margin, img.shape[1] - right_margin), row_idx)
-    right = compare_pixels(img, reversed(range(left_margin, img.shape[1] - right_margin)), row_idx)
+        # 左から走査：余白色と大きく異なる色が現れる位置
+        for i in range(left_margin, width - right_margin):
+            pixel = row[i].astype(np.int32)
+            diff = int(np.abs(pixel - left_margin_color).sum())
+            if diff >= color_diff_threshold:
+                left_candidates.append(i)
+                break
 
-    # デフォルト値（境界が見つからない場合）
-    if left is None:
-        left = left_margin
-    if right is None:
-        right = img.shape[1] - right_margin
+        # 右から走査：余白色と大きく異なる色が現れる位置
+        for i in range(width - right_margin - 1, left_margin, -1):
+            pixel = row[i].astype(np.int32)
+            diff = int(np.abs(pixel - right_margin_color).sum())
+            if diff >= color_diff_threshold:
+                right_candidates.append(i + 1)  # 境界の外側を含める
+                break
+
+    # 安全マージンとして最も内側の境界を採用（文字が切れないように）
+    left = max(left_candidates) if left_candidates else left_margin
+    right = min(right_candidates) if right_candidates else width - right_margin
+
+    if right <= left:
+        raise ValueError("境界検出に失敗しました。マージン設定を見直してください")
 
     return left, right
 

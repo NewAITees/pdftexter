@@ -7,7 +7,6 @@ Kindle → PDF → Text の一連のワークフローを統合したCLIイン�
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional
 
 from pdftexter.cli.pdf_to_text import main as pdf_to_text_main
 from pdftexter.kindle.screenshot import KindleScreenshot
@@ -17,10 +16,10 @@ from pdftexter.pdf.converter import PDFConverter
 def kindle_to_pdf_cli(args: argparse.Namespace) -> int:
     """
     Kindle → PDF変換のCLI処理
-    
+
     Args:
         args: コマンドライン引数
-        
+
     Returns:
         終了コード
     """
@@ -35,67 +34,64 @@ def kindle_to_pdf_cli(args: argparse.Namespace) -> int:
 def pdf_to_text_cli(args: argparse.Namespace) -> int:
     """
     PDF → Text変換のCLI処理
-    
+
     Args:
         args: コマンドライン引数
-        
+
     Returns:
         終了コード
     """
     # pdf_to_textモジュールのmain関数を呼び出し
     # 引数を再構築
-    sys.argv = ["pdf-to-text", args.input] + (
-        ["-o", args.output] if args.output else []
-    ) + (
-        ["-c", args.config] if args.config else []
-    ) + (
-        ["-p", args.prompt] if args.prompt else []
-    ) + (
-        ["--format", args.format] if args.format else []
-    ) + (
-        ["--temp-dir", args.temp_dir] if args.temp_dir else []
-    ) + (
-        ["--no-progress"] if args.no_progress else []
-    ) + (
-        ["--skip-verify"] if args.skip_verify else []
+    sys.argv = (
+        ["pdf-to-text", args.input]
+        + (["-o", args.output] if args.output else [])
+        + (["-c", args.config] if args.config else [])
+        + (["-p", args.prompt] if args.prompt else [])
+        + (["--format", args.format] if args.format else [])
+        + (["--temp-dir", args.temp_dir] if args.temp_dir else [])
+        + (["--no-progress"] if args.no_progress else [])
+        + (["--skip-verify"] if args.skip_verify else [])
+        + (["--keep-temp-images"] if args.keep_temp_images else [])
+        + (["--resume"] if args.resume else [])
     )
-    
+
     return pdf_to_text_main()
 
 
 def full_workflow_cli(args: argparse.Namespace) -> int:
     """
     Kindle → PDF → Text の一括処理
-    
+
     Args:
         args: コマンドライン引数
-        
+
     Returns:
         終了コード
     """
     print("Kindle → PDF → Text の一括処理")
     print("=" * 50)
-    
+
     # ステップ1: Kindle → 画像（現在はGUIのみ）
     print("\n[ステップ1] Kindleスクリーンショット撮影")
     print("注意: このステップは現在GUI版のみ対応しています。")
     print("以下のコマンドでGUIを起動してください:")
     print("  poetry run python scripts/kindle_screenshot.py")
-    
+
     # ユーザーに画像フォルダの入力を求める
     image_folder = args.image_folder
     if not image_folder:
         image_folder = input("\n画像フォルダのパスを入力してください: ").strip()
-    
+
     if not Path(image_folder).exists():
         print(f"エラー: 画像フォルダが見つかりません: {image_folder}", file=sys.stderr)
         return 1
-    
+
     # ステップ2: 画像 → PDF
     print("\n[ステップ2] 画像 → PDF変換")
     pdf_output_dir = args.pdf_output_dir or Path(image_folder).parent
     pdf_filename = args.pdf_filename or Path(image_folder).name + ".pdf"
-    
+
     converter = PDFConverter()
     success = converter.convert_images_to_pdf(
         folder_path=image_folder,
@@ -105,20 +101,20 @@ def full_workflow_cli(args: argparse.Namespace) -> int:
         status_var=None,
         root=None,
     )
-    
+
     if not success:
         print("エラー: PDF変換に失敗しました", file=sys.stderr)
         return 1
-    
+
     pdf_path = Path(pdf_output_dir) / pdf_filename
     print(f"PDFファイルを作成しました: {pdf_path}")
-    
+
     # ステップ3: PDF → Text
     print("\n[ステップ3] PDF → Text変換（OCR）")
-    
+
     # pdf_to_textの引数を構築
     text_output = args.text_output or pdf_path.with_suffix(".md")
-    
+
     # 一時的にsys.argvを設定
     original_argv = sys.argv
     sys.argv = [
@@ -127,31 +123,59 @@ def full_workflow_cli(args: argparse.Namespace) -> int:
         "-o",
         str(text_output),
     ]
-    
+
     if args.ocr_config:
         sys.argv.extend(["-c", args.ocr_config])
     if args.ocr_prompt:
         sys.argv.extend(["-p", args.ocr_prompt])
     if args.ocr_format:
         sys.argv.extend(["--format", args.ocr_format])
-    
+
     try:
         result = pdf_to_text_main()
     finally:
         sys.argv = original_argv
-    
+
     if result != 0:
         print("エラー: OCR処理に失敗しました", file=sys.stderr)
         return result
-    
+
     print(f"\n完了: テキストファイルを作成しました: {text_output}")
     return 0
+
+
+def images_to_markdown_cli(args: argparse.Namespace) -> int:
+    """
+    画像フォルダ → Markdown変換のCLI処理
+
+    Args:
+        args: コマンドライン引数
+
+    Returns:
+        終了コード
+    """
+    from pdftexter.cli.images_to_markdown import main as images_to_markdown_main
+
+    sys.argv = (
+        ["images-to-markdown", args.input]
+        + (["-o", args.output] if args.output else [])
+        + (["--output-dir", args.output_dir] if args.output_dir else [])
+        + (["--batch"] if args.batch else [])
+        + (["-c", args.config] if args.config else [])
+        + (["-p", args.prompt] if args.prompt else [])
+        + (["--format", args.format] if args.format else [])
+        + (["--skip-verify"] if args.skip_verify else [])
+        + (["--no-progress"] if args.no_progress else [])
+        + (["--no-cleanup"] if args.no_cleanup else [])
+    )
+
+    return images_to_markdown_main()
 
 
 def main() -> int:
     """
     メイン関数
-    
+
     Returns:
         終了コード
     """
@@ -162,56 +186,54 @@ def main() -> int:
 使用例:
   # PDF → Text変換のみ
   pdftexter pdf-to-text input.pdf -o output.md
-  
+
   # Kindle → PDF → Markdown（PDFレビュー機能付き）
   pdftexter kindle-to-markdown -o output.md
-  
+
   # Kindle → PDF → Text の一括処理（画像フォルダから開始）
   pdftexter full input_folder -o output.md
         """,
     )
-    
+
     subparsers = parser.add_subparsers(dest="command", help="サブコマンド")
-    
+
     # kindle-to-pdf サブコマンド
     kindle_parser = subparsers.add_parser(
         "kindle-to-pdf",
         help="Kindle → PDF変換（現在はGUI版のみ）",
     )
     kindle_parser.set_defaults(func=kindle_to_pdf_cli)
-    
+
     # pdf-to-text サブコマンド
     pdf_text_parser = subparsers.add_parser(
         "pdf-to-text",
         help="PDF → Text変換（OCR）",
     )
     pdf_text_parser.add_argument("input", type=str, help="入力PDFファイルのパス")
-    pdf_text_parser.add_argument(
-        "-o", "--output", type=str, help="出力ファイルのパス"
-    )
-    pdf_text_parser.add_argument(
-        "-c", "--config", type=str, help="OCR設定ファイルのパス"
-    )
-    pdf_text_parser.add_argument(
-        "-p", "--prompt", type=str, help="カスタムプロンプト"
-    )
+    pdf_text_parser.add_argument("-o", "--output", type=str, help="出力ファイルのパス")
+    pdf_text_parser.add_argument("-c", "--config", type=str, help="OCR設定ファイルのパス")
+    pdf_text_parser.add_argument("-p", "--prompt", type=str, help="カスタムプロンプト")
     pdf_text_parser.add_argument(
         "--format",
         choices=["markdown", "plain"],
         default="markdown",
         help="出力形式",
     )
+    pdf_text_parser.add_argument("--temp-dir", type=str, help="中間画像を保存する一時ディレクトリ")
+    pdf_text_parser.add_argument("--no-progress", action="store_true", help="進捗表示を無効化")
+    pdf_text_parser.add_argument("--skip-verify", action="store_true", help="OCRセットアップの検証をスキップ")
     pdf_text_parser.add_argument(
-        "--temp-dir", type=str, help="中間画像を保存する一時ディレクトリ"
+        "--keep-temp-images",
+        action="store_true",
+        help="一時画像を保持する（デバッグ用）",
     )
     pdf_text_parser.add_argument(
-        "--no-progress", action="store_true", help="進捗表示を無効化"
-    )
-    pdf_text_parser.add_argument(
-        "--skip-verify", action="store_true", help="OCRセットアップの検証をスキップ"
+        "--resume",
+        action="store_true",
+        help="中断した処理を再開する（進捗ファイルから続きから開始）",
     )
     pdf_text_parser.set_defaults(func=pdf_to_text_cli)
-    
+
     # kindle-to-markdown サブコマンド（PDFレビュー機能付き）
     kindle_md_parser = subparsers.add_parser(
         "kindle-to-markdown",
@@ -254,9 +276,11 @@ def main() -> int:
         action="store_true",
         help="PDFレビューをスキップ",
     )
+
     def kindle_to_markdown_wrapper(args: argparse.Namespace) -> int:
         """kindle-to-markdownコマンドのラッパー"""
         from pdftexter.cli.kindle_to_markdown import kindle_to_markdown_workflow
+
         return kindle_to_markdown_workflow(
             pdf_output_dir=args.pdf_output_dir,
             pdf_filename=args.pdf_filename,
@@ -266,9 +290,70 @@ def main() -> int:
             ocr_format=args.ocr_format,
             skip_review=args.skip_review,
         )
-    
+
     kindle_md_parser.set_defaults(func=kindle_to_markdown_wrapper)
-    
+
+    # images-to-markdown サブコマンド
+    images_parser = subparsers.add_parser(
+        "images-to-markdown",
+        help="画像フォルダをOCRしてMarkdownにまとめる",
+    )
+    images_parser.add_argument(
+        "input",
+        type=str,
+        help="入力画像フォルダのパス",
+    )
+    images_parser.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        help="出力ファイルのパス（省略時はフォルダ名.md）",
+    )
+    images_parser.add_argument(
+        "--output-dir",
+        type=str,
+        help="バッチ時の出力先ディレクトリ（省略時は入力フォルダ配下）",
+    )
+    images_parser.add_argument(
+        "--batch",
+        action="store_true",
+        help="入力フォルダ直下の各サブフォルダを順次処理する",
+    )
+    images_parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        help="OCR設定ファイルのパス",
+    )
+    images_parser.add_argument(
+        "-p",
+        "--prompt",
+        type=str,
+        help="OCR用カスタムプロンプト",
+    )
+    images_parser.add_argument(
+        "--format",
+        choices=["markdown", "plain"],
+        default="markdown",
+        help="出力形式",
+    )
+    images_parser.add_argument(
+        "--skip-verify",
+        action="store_true",
+        help="OCRセットアップの検証をスキップ",
+    )
+    images_parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="進捗表示を無効化",
+    )
+    images_parser.add_argument(
+        "--no-cleanup",
+        action="store_true",
+        help="ヘッダー/フッター除去などの後処理を無効化",
+    )
+    images_parser.set_defaults(func=images_to_markdown_cli)
+
     # full サブコマンド（一括処理）
     full_parser = subparsers.add_parser(
         "full",
@@ -313,16 +398,18 @@ def main() -> int:
         help="OCR出力形式",
     )
     full_parser.set_defaults(func=full_workflow_cli)
-    
+
     args = parser.parse_args()
-    
+
     if not args.command:
-        parser.print_help()
-        return 1
-    
+        # サブコマンドなしの場合はGUIモードで起動
+        print("GUIモードを起動します...")
+        screenshot = KindleScreenshot()
+        result = screenshot.run()
+        return 0 if result is not None else 1
+
     return args.func(args)
 
 
 if __name__ == "__main__":
     sys.exit(main())
-
