@@ -4,13 +4,13 @@ vLLMサーバー不要で直接モデルを実行できる簡単な方法
 """
 
 import sys
+import tempfile
 from pathlib import Path
-from typing import Optional
 
 try:
-    from transformers import AutoModel, AutoTokenizer
-    from PIL import Image
     import torch
+    from transformers import AutoModel, AutoTokenizer
+
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
@@ -19,14 +19,14 @@ except ImportError:
 
 class HuggingFaceOCRWrapper:
     """HuggingFace Transformers版DeepSeek-OCRラッパー"""
-    
+
     def __init__(self, model_path: str):
         """
         初期化
-        
+
         Args:
             model_path: DeepSeek-OCRモデルのパス（HuggingFaceモデルIDまたはローカルパス）
-            
+
         Raises:
             ImportError: transformersがインストールされていない場合
             FileNotFoundError: モデルが見つからない場合
@@ -39,35 +39,34 @@ class HuggingFaceOCRWrapper:
                 "または:\n"
                 "  uv pip install transformers pillow torch"
             )
-        
+
         self.model_path = model_path
         print(f"DeepSeek-OCRモデルを読み込み中: {model_path}...", file=sys.stderr)
-        
+
         # Flash Attention 2関連のエラーを回避するため、モンキーパッチを適用
         # DeepSeek-OCRモデルのカスタムコードがLlamaFlashAttention2をインポートしようとするのを防ぎます
         # LlamaFlashAttention2のダミークラスを定義
         class DummyLlamaFlashAttention2:
             """LlamaFlashAttention2のダミークラス（互換性のため）"""
+
             pass
-        
+
         # transformers.models.llama.modeling_llamaモジュールにダミークラスを追加
         # これにより、モデルのカスタムコードがインポートエラーを起こさないようにします
         try:
             import transformers.models.llama.modeling_llama as llama_module
-            if not hasattr(llama_module, 'LlamaFlashAttention2'):
+
+            if not hasattr(llama_module, "LlamaFlashAttention2"):
                 # LlamaFlashAttention2が存在しない場合、ダミークラスを追加
                 llama_module.LlamaFlashAttention2 = DummyLlamaFlashAttention2
         except ImportError:
             pass
-        
+
         try:
             # Tokenizerとモデルを読み込み（公式の推奨方法）
             # 参考: https://github.com/deepseek-ai/DeepSeek-OCR
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                model_path,
-                trust_remote_code=True
-            )
-            
+            self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+
             # モデルの読み込み（公式の推奨方法に従う）
             # 公式READMEでは _attn_implementation='flash_attention_2' を推奨
             # ただし、flash-attnがインストールされていない場合はフォールバック
@@ -75,17 +74,18 @@ class HuggingFaceOCRWrapper:
             try:
                 # flash-attnがインストールされているかチェック
                 import flash_attn  # noqa: F401
+
                 use_flash_attention_2 = True
             except ImportError:
                 # flash-attnがインストールされていない場合は標準実装を使用
                 use_flash_attention_2 = False
-            
+
             if use_flash_attention_2:
                 # 公式の推奨方法：flash_attention_2を使用
                 try:
                     self.model = AutoModel.from_pretrained(
                         model_path,
-                        _attn_implementation='flash_attention_2',
+                        _attn_implementation="flash_attention_2",
                         trust_remote_code=True,
                         use_safetensors=True,
                     )
@@ -110,7 +110,7 @@ class HuggingFaceOCRWrapper:
                 )
                 print("✓ モデルを読み込みました（標準のattention実装を使用）", file=sys.stderr)
                 print("💡 ヒント: flash-attnをインストールすると、パフォーマンスが向上します", file=sys.stderr)
-            
+
             # モデルを評価モードに設定し、GPUに移動
             self.model = self.model.eval()
             if torch is not None and torch.cuda.is_available():
@@ -122,15 +122,12 @@ class HuggingFaceOCRWrapper:
                     print("✓ GPUを使用して推論します（bfloat16は使用できません）", file=sys.stderr)
             else:
                 print("⚠ GPUが利用できないため、CPUで推論します", file=sys.stderr)
-            
+
             print("✓ モデルの読み込みが完了しました", file=sys.stderr)
-            
+
         except Exception as e:
-            raise RuntimeError(
-                f"モデルの読み込みに失敗しました: {e}\n"
-                f"モデルパスを確認してください: {model_path}"
-            )
-    
+            raise RuntimeError(f"モデルの読み込みに失敗しました: {e}\n" f"モデルパスを確認してください: {model_path}")
+
     def process_image(
         self,
         image_path: str,
@@ -138,41 +135,43 @@ class HuggingFaceOCRWrapper:
     ) -> str:
         """
         画像ファイルをOCR処理する
-        
+
         Args:
             image_path: 画像ファイルのパス
             prompt: プロンプトテキスト
-            
+
         Returns:
             OCR結果のテキスト（Markdown形式）
         """
         image_file = Path(image_path)
         if not image_file.exists():
             raise FileNotFoundError(f"画像ファイルが見つかりません: {image_path}")
-        
+
         # DeepSeek-OCRの公式実装では`model.infer()`メソッドを使用
-        # infer(self, tokenizer, prompt='', image_file='', output_path='', 
-        #       base_size=1024, image_size=640, crop_mode=True, 
+        # infer(self, tokenizer, prompt='', image_file='', output_path='',
+        #       base_size=1024, image_size=640, crop_mode=True,
         #       test_compress=False, save_results=False)
-        if hasattr(self.model, 'infer'):
+        if hasattr(self.model, "infer"):
             # 公式の推奨方法：`infer`メソッドを使用
-            result = self.model.infer(
-                self.tokenizer,
-                prompt=prompt,
-                image_file=str(image_path),
-                output_path='',  # 結果を保存しない
-                base_size=1024,
-                image_size=640,
-                crop_mode=True,
-                test_compress=False,
-                save_results=False,
-            )
+            # output_pathに空文字列を渡すとWindowsでos.makedirs('')が失敗するため
+            # 一時ディレクトリを使用する
+            # eval_mode=Trueを指定しないとNoneが返されるため注意
+            with tempfile.TemporaryDirectory(prefix="deepseek_ocr_") as temp_dir:
+                result = self.model.infer(
+                    self.tokenizer,
+                    prompt=prompt,
+                    image_file=str(image_path),
+                    output_path=temp_dir,
+                    base_size=1024,
+                    image_size=640,
+                    crop_mode=True,
+                    test_compress=False,
+                    save_results=False,
+                    eval_mode=True,
+                )
             return result
         else:
-            raise RuntimeError(
-                "DeepSeek-OCRモデルに`infer`メソッドが見つかりません。"
-                "モデルが正しく読み込まれているか確認してください。"
-            )
+            raise RuntimeError("DeepSeek-OCRモデルに`infer`メソッドが見つかりません。" "モデルが正しく読み込まれているか確認してください。")
 
 
 # torchのインポート
@@ -180,4 +179,3 @@ try:
     import torch
 except ImportError:
     torch = None
-
